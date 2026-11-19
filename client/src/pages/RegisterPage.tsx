@@ -117,9 +117,7 @@ export function RegisterPage() {
       {/* Left Split Panel */}
       <div className="hidden lg:flex lg:col-span-5 flex-col justify-between bg-surface-subtle p-12 border-r border-border">
         <div className="flex items-center gap-2.5">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-white dark:text-[#151A18]">
-            <ShieldCheck className="h-5 w-5" />
-          </div>
+          <img src="/images/nestwell_logo.png" alt="NestWell.BT" className="h-9 w-9 rounded-lg object-contain" />
           <span className="font-serif text-xl font-semibold text-fg">NestWell.BT</span>
         </div>
 
