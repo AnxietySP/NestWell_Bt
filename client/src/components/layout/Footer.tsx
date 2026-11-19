@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { ShieldCheck, Phone, Mail, MapPin } from 'lucide-react';
+import { ShieldCheck, Phone, Mail } from 'lucide-react';
 
 export function Footer() {
   return (
@@ -7,12 +7,11 @@ export function Footer() {
       <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
         <div className="grid gap-8 md:grid-cols-4">
           <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-white dark:text-[#151A18]">
-                <ShieldCheck className="h-4 w-4" />
-              </div>
-              <span className="font-serif text-lg font-semibold text-fg">NestWell.BT</span>
-            </div>
+            {/* Updated logo to match the header */}
+            <Link to="/" className="flex items-center gap-2">
+              <ShieldCheck className="h-6 w-6 text-primary" />
+              <span className="font-serif text-xl font-bold tracking-tight text-fg">NestWell.BT</span>
+            </Link>
             <p className="text-sm text-fg-muted leading-relaxed">
               Bhutan’s dedicated platform for verified, long-term childcare placements built on trust, stability, and family peace of mind.
             </p>
@@ -41,7 +40,6 @@ export function Footer() {
           <div>
             <h4 className="text-sm font-semibold text-fg">Contact Thimphu Office</h4>
             <ul className="mt-3 space-y-2.5 text-sm text-fg-muted">
-              <li className="flex items-center gap-2"><MapPin className="h-4 w-4 text-primary" /> Norzin Lam, Thimphu, Bhutan</li>
               <li className="flex items-center gap-2"><Phone className="h-4 w-4 text-primary" /> +975 2 334 890</li>
               <li className="flex items-center gap-2"><Mail className="h-4 w-4 text-primary" /> support@nestwell.bt</li>
             </ul>

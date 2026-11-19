@@ -10,8 +10,6 @@ import {
   ArrowRight,
   ChevronDown,
   Mail,
-  MapPin, // Imported for the footer icon
-  Phone,  // Imported for the footer icon
 } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 
@@ -51,7 +49,7 @@ function Hero() {
   const [mode, setMode] = useState<'parent' | 'caretaker'>('parent');
 
   return (
-    <section className="mx-auto max-w-7xl px-4 pt-2 sm:px-6 lg:px-8 lg:pt-4">
+    <section className="mx-auto max-w-7xl px-4 pt-12 sm:px-6 lg:px-8 lg:pt-16">
       <div className="grid items-center gap-12 lg:grid-cols-12">
         <div className="space-y-8 lg:col-span-7">
           
@@ -97,6 +95,7 @@ function Hero() {
 
         <div className="lg:col-span-5">
           <div className="overflow-hidden rounded-2xl border border-border bg-surface p-2 shadow-elevated">
+            {/* Changed image height from 420px to 320px to remove the massive gap */}
             <img
               src="public\images\LandingPic.png"
               alt="Caregiver reading with a young child"
@@ -184,67 +183,6 @@ function Contact() {
   );
 }
 
-// Added the Footer component based on your screenshot to show the removal
-function Footer() {
-  return (
-    <footer className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8 border-t border-border mt-16">
-      <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
-        {/* Brand */}
-        <div>
-          <div className="flex items-center gap-2 font-serif text-xl font-semibold text-fg">
-            <ShieldCheck className="h-6 w-6 text-primary" />
-            NestWell.BT
-          </div>
-          <p className="mt-4 text-sm text-fg-muted">
-            Bhutan's dedicated platform for verified, long-term childcare placements built on trust, stability, and family peace of mind.
-          </p>
-        </div>
-
-        {/* Platform */}
-        <div>
-          <h4 className="font-semibold text-fg">Platform</h4>
-          <ul className="mt-4 space-y-2 text-sm text-fg-muted">
-            <li>Browse Verified Caretakers</li>
-            <li>How 6-Month Contracts Work</li>
-            <li>Apply as a Caretaker</li>
-            <li>Safety & Verification FAQ</li>
-          </ul>
-        </div>
-
-        {/* Coverage */}
-        <div>
-          <h4 className="font-semibold text-fg">Dzongkhag Coverage</h4>
-          <ul className="mt-4 space-y-2 text-sm text-fg-muted">
-            <li>Thimphu & Paro Valley</li>
-            <li>Phuentsholing & Chukha</li>
-            <li>Punakha & Wangdue</li>
-            <li>Gelephu, Bumthang & Eastern Dzongkhags</li>
-          </ul>
-        </div>
-
-        {/* Contact */}
-        <div>
-          <h4 className="font-semibold text-fg">Contact Thimphu Office</h4>
-          <ul className="mt-4 space-y-2 text-sm text-fg-muted">
-            {/* REMOVED: <li className="flex items-center gap-2"><MapPin className="h-4 w-4" /> Norzin Lam, Thimphu, Bhutan</li> */}
-            <li className="flex items-center gap-2">
-              <Phone className="h-4 w-4" /> +975 2 334 890
-            </li>
-            <li className="flex items-center gap-2">
-              <Mail className="h-4 w-4" /> support@nestwell.bt
-            </li>
-          </ul>
-        </div>
-      </div>
-
-      <div className="mt-12 border-t border-border pt-6 flex flex-col sm:flex-row justify-between items-center text-xs text-fg-muted">
-        <p>© 2026 NestWell.BT Childcare Technologies. All rights reserved.</p>
-        <p className="mt-2 sm:mt-0">Minimum 6-Month Stability Standard • Citizenship ID Verified</p>
-      </div>
-    </footer>
-  );
-}
-
 export function LandingPage() {
   const active = useActiveSection();
 
@@ -269,9 +207,6 @@ export function LandingPage() {
           {active === 'contact' && <Contact />}
         </motion.div>
       </AnimatePresence>
-      
-      {/* Added Footer here so it shows up below the main content */}
-      <Footer />
     </div>
   );
 }
