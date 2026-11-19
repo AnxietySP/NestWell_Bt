@@ -88,7 +88,7 @@ function Hero() {
         <div className="lg:col-span-5">
           <div className="overflow-hidden rounded-2xl border border-border bg-surface p-2 shadow-elevated">
             <img
-              src="LandingPic.png"
+              src="public\images\LandingPic.png"
               alt="Caregiver reading with a young child"
               className="h-[420px] w-full rounded-xl object-cover"
             />
