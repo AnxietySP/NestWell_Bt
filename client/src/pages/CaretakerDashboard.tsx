@@ -6,6 +6,7 @@ import { formatBtn, formatDisplayDate } from '../lib/date';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
+import { AvatarUploader } from '../components/shared/AvatarUploader';
 
 export function CaretakerDashboard() {
   const [profile, setProfile] = useState<any>(null);
@@ -152,6 +153,11 @@ export function CaretakerDashboard() {
 
         {/* Profile & Availability Editor */}
         <div className="lg:col-span-5 space-y-6">
+          <div className="rounded-xl border border-border bg-surface p-5 shadow-soft space-y-3">
+            <h3 className="font-serif text-lg font-semibold text-fg">Profile Photo</h3>
+            <AvatarUploader />
+          </div>
+
           <form onSubmit={handleSaveProfile} className="rounded-xl border border-border bg-surface p-5 shadow-soft space-y-4">
             <h3 className="font-serif text-lg font-semibold text-fg">Profile & Availability</h3>
 

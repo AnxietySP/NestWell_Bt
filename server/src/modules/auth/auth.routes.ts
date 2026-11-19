@@ -14,7 +14,7 @@ import {
 } from '../../utils/security.utils';
 import { AppError } from '../../middlewares/error.middleware';
 import { authenticate } from '../../middlewares/auth.middleware';
-import { uploadDocuments } from '../../middlewares/upload.middleware';
+import { uploadRegistration, uploadAvatar } from '../../middlewares/upload.middleware';
 import { createNotification } from '../notifications/notifications.service';
 
 const router = Router();
@@ -130,7 +130,7 @@ router.post('/register/parent', async (req: Request, res: Response, next: NextFu
 
 router.post(
   '/register/caretaker',
-  uploadDocuments.fields([
+  uploadRegistration.fields([
     { name: 'idDocument', maxCount: 1 },
     { name: 'avatar', maxCount: 1 },
   ]),
@@ -167,7 +167,7 @@ router.post(
       const userId = uuidv4();
       const passwordHash = await hashPassword(data.password);
       const verifyToken = generateOpaqueToken();
-      const avatarUrl = avatar ? `/uploads/${avatar.filename}` : null;
+      const avatarUrl = avatar ? `/images/avatars/${avatar.filename}` : null;
 
       await withTransaction(async (conn) => {
         await conn.execute(
@@ -366,6 +366,17 @@ router.get('/me', authenticate, async (req: Request, res: Response, next: NextFu
     );
     if (!rows[0]) throw new AppError('User not found.', 404);
     res.json({ user: { ...rows[0], isEmailVerified: Boolean(rows[0].isEmailVerified) } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.patch('/me/avatar', authenticate, uploadAvatar.single('avatar'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!req.file) throw new AppError('Please choose an image.', 400);
+    const avatarUrl = `/images/avatars/${req.file.filename}`;
+    await pool.execute('UPDATE users SET avatar_url = ? WHERE id = ?', [avatarUrl, req.user!.sub]);
+    res.json({ avatarUrl });
   } catch (err) {
     next(err);
   }

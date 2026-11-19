@@ -9,6 +9,7 @@ import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Badge } from '../components/ui/Badge';
 import { Modal } from '../components/ui/Modal';
+import { AvatarUploader } from '../components/shared/AvatarUploader';
 
 export function ParentDashboard() {
   const { user, refreshUser } = useAuth();
@@ -77,6 +78,9 @@ export function ParentDashboard() {
         <div>
           <h1 className="font-serif text-3xl font-semibold text-fg">Welcome, {user?.fullName}</h1>
           <p className="text-sm text-fg-muted">Manage your child profiles and 6+ month childcare agreements.</p>
+          <div className="mt-4">
+            <AvatarUploader />
+          </div>
         </div>
         <div className="flex flex-wrap gap-3">
           {!user?.isEmailVerified && (
