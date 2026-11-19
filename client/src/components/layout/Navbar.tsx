@@ -1,12 +1,27 @@
 import { useState } from 'react';
-import { Link, NavLink, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Menu, X, ShieldCheck, LayoutDashboard, LogOut } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { ThemeToggle } from '../shared/ThemeToggle';
 import { Button } from '../ui/Button';
 
+const NAV_ITEMS = [
+  { label: 'Home', to: '/', hash: '' },
+  { label: 'Find Caretakers', to: '/caretakers', hash: '' },
+  { label: 'How It Works', to: '/#how-it-works', hash: '#how-it-works' },
+  { label: 'About Us', to: '/#about', hash: '#about' },
+  { label: 'Contact & FAQ', to: '/#contact', hash: '#contact' },
+];
+
 export function Navbar() {
   const { user, logout } = useAuth();
+  const { pathname, hash } = useLocation();
+
+  const isActive = (item: (typeof NAV_ITEMS)[number]) => {
+    if (item.to === '/caretakers') return pathname === '/caretakers';
+    if (pathname !== '/') return false;
+    return item.hash === '' ? hash === '' || hash === '#home' : hash === item.hash;
+  };
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -35,27 +50,15 @@ export function Navbar() {
         </Link>
 
         <nav className="hidden md:flex items-center gap-7 text-sm font-medium">
-          <NavLink
-            to="/"
-            className={({ isActive }) => (isActive ? 'text-primary' : 'text-fg-muted hover:text-fg')}
-          >
-            Home
-          </NavLink>
-          <NavLink
-            to="/caretakers"
-            className={({ isActive }) => (isActive ? 'text-primary' : 'text-fg-muted hover:text-fg')}
-          >
-            Find Caretakers
-          </NavLink>
-          <a href="/#how-it-works" className="text-fg-muted hover:text-fg">
-            How It Works
-          </a>
-          <a href="/#why-nestwell" className="text-fg-muted hover:text-fg">
-            About Us
-          </a>
-          <a href="/#faq" className="text-fg-muted hover:text-fg">
-            Contact & FAQ
-          </a>
+          {NAV_ITEMS.map((item) => (
+            <Link
+              key={item.label}
+              to={item.to}
+              className={isActive(item) ? 'text-primary' : 'text-fg-muted hover:text-fg'}
+            >
+              {item.label}
+            </Link>
+          ))}
         </nav>
 
         <div className="hidden md:flex items-center gap-3">
@@ -99,21 +102,16 @@ export function Navbar() {
       {mobileOpen && (
         <div className="border-t border-border bg-surface px-4 py-4 space-y-3 md:hidden">
           <div className="flex flex-col space-y-2 text-sm font-medium">
-            <Link to="/" onClick={() => setMobileOpen(false)} className="py-1.5 text-fg">
-              Home
-            </Link>
-            <Link to="/caretakers" onClick={() => setMobileOpen(false)} className="py-1.5 text-fg">
-              Find Caretakers
-            </Link>
-            <a href="/#how-it-works" onClick={() => setMobileOpen(false)} className="py-1.5 text-fg-muted">
-              How It Works
-            </a>
-            <a href="/#why-nestwell" onClick={() => setMobileOpen(false)} className="py-1.5 text-fg-muted">
-              About Us
-            </a>
-            <a href="/#faq" onClick={() => setMobileOpen(false)} className="py-1.5 text-fg-muted">
-              FAQ
-            </a>
+            {NAV_ITEMS.map((item) => (
+              <Link
+                key={item.label}
+                to={item.to}
+                onClick={() => setMobileOpen(false)}
+                className={`py-1.5 ${isActive(item) ? 'text-primary' : 'text-fg'}`}
+              >
+                {item.label}
+              </Link>
+            ))}
           </div>
           <div className="flex gap-2 border-t border-border pt-3">
             {user ? (
