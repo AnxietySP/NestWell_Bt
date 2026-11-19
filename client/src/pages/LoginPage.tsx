@@ -1,10 +1,16 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, ShieldCheck } from 'lucide-react';
+import { Eye, EyeOff, CheckCircle2 } from 'lucide-react';
 import { api } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
+
+const HIGHLIGHTS = [
+  'CID-verified caretakers screened by our team',
+  'Minimum 6-month childcare placements for stability',
+  'Encrypted child profiles, schedules & agreements',
+];
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -35,29 +41,31 @@ export function LoginPage() {
   };
 
   return (
-    <div className="grid min-h-[calc(100vh-4rem)] lg:grid-cols-2">
-      <div className="hidden lg:flex flex-col justify-between bg-surface-subtle p-12 border-r border-border">
-        <div className="flex items-center gap-2.5">
-          <img src="/images/nestwell_logo.png" alt="NestWell.BT" className="h-9 w-9 rounded-lg object-contain" />
-          <span className="font-serif text-xl font-semibold text-fg">NestWell.BT</span>
-        </div>
+    <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-12 px-4 py-12 sm:px-6 lg:flex-row lg:px-8 lg:py-16">
+      {/* Left Open Editorial Column */}
+      <div className="hidden lg:block lg:w-5/12 space-y-6">
+        <h2 className="font-serif text-4xl font-semibold text-fg leading-[1.15] tracking-tight">
+          Welcome back to Bhutan’s trusted childcare community.
+        </h2>
+        <p className="text-base text-fg-muted leading-relaxed">
+          Manage your childcare agreements, child profiles, and household schedules in one secure place.
+        </p>
 
-        <div className="max-w-md space-y-4">
-          <h2 className="font-serif text-3xl font-semibold text-fg leading-snug">
-            Welcome back to Bhutan’s trusted childcare community.
-          </h2>
-          <p className="text-sm text-fg-muted leading-relaxed">
-            Manage your six-month childcare agreements, child profiles, verification status, and household schedules in one secure place.
-          </p>
-        </div>
-
-        <p className="text-xs text-fg-muted">Protected by role-based access control & encrypted sessions.</p>
+        <ul className="space-y-3 pt-2 text-sm text-fg-muted">
+          {HIGHLIGHTS.map((item) => (
+            <li key={item} className="flex items-center gap-2.5">
+              <CheckCircle2 className="h-4 w-4 shrink-0 text-primary" />
+              <span>{item}</span>
+            </li>
+          ))}
+        </ul>
       </div>
 
-      <div className="flex items-center justify-center px-4 py-12 sm:px-8">
-        <div className="w-full max-w-md space-y-6">
+      {/* Right Clean Form Card */}
+      <div className="w-full max-w-md lg:w-6/12">
+        <div className="rounded-2xl border border-border bg-surface p-7 shadow-soft sm:p-9 space-y-6">
           <div>
-            <h1 className="font-serif text-3xl font-semibold text-fg">Sign in to NestWell.BT</h1>
+            <h1 className="font-serif text-2xl font-semibold text-fg sm:text-3xl">Sign in to NestWell.BT</h1>
             <p className="mt-1.5 text-sm text-fg-muted">
               New to NestWell?{' '}
               <Link to="/register" className="font-medium text-primary hover:underline">
@@ -101,7 +109,7 @@ export function LoginPage() {
               }
             />
 
-            <div className="flex items-center justify-between text-xs">
+            <div className="flex items-center justify-between text-xs pt-0.5">
               <label className="flex items-center gap-2 text-fg-muted cursor-pointer">
                 <input
                   type="checkbox"
@@ -109,9 +117,12 @@ export function LoginPage() {
                   onChange={(e) => setRememberMe(e.target.checked)}
                   className="h-4 w-4 rounded border-border accent-primary"
                 />
-                Remember me on this device
+                Remember me
               </label>
-              <a href="mailto:support@nestwell.bt?subject=Password%20Reset" className="font-medium text-primary hover:underline">
+              <a
+                href="mailto:support@nestwell.bt?subject=Password%20Reset"
+                className="font-medium text-primary hover:underline"
+              >
                 Forgot password?
               </a>
             </div>

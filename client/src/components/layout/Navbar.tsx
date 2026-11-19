@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Menu, X, ShieldCheck, LayoutDashboard, LogOut } from 'lucide-react';
+import { Menu, X, LayoutDashboard, LogOut } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { ThemeToggle } from '../shared/ThemeToggle';
 import { Button } from '../ui/Button';
@@ -40,8 +40,12 @@ export function Navbar() {
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-bg/90 backdrop-blur-md">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
-        <Link to="/" className="flex items-center gap-2.5">
-           <img src="/images/nestwell_logo.png" alt="NestWell.BT" className="h-9 w-9 rounded-lg object-contain" />
+        <Link to="/" className="flex items-center gap-3">
+          <img
+            src="/images/nestwell_logo.png"
+            alt="NestWell.BT"
+            className="h-11 w-11 rounded-lg object-contain"
+          />
           <span className="font-serif text-xl font-semibold tracking-tight text-fg">
             NestWell<span className="text-primary">.BT</span>
           </span>
@@ -114,10 +118,24 @@ export function Navbar() {
           <div className="flex gap-2 border-t border-border pt-3">
             {user ? (
               <>
-                <Button className="flex-1" size="sm" onClick={() => { setMobileOpen(false); navigate(dashboardPath); }}>
+                <Button
+                  className="flex-1"
+                  size="sm"
+                  onClick={() => {
+                    setMobileOpen(false);
+                    navigate(dashboardPath);
+                  }}
+                >
                   Dashboard
                 </Button>
-                <Button variant="outline" size="sm" onClick={() => { setMobileOpen(false); handleLogout(); }}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setMobileOpen(false);
+                    handleLogout();
+                  }}
+                >
                   Logout
                 </Button>
               </>

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Eye, EyeOff, ShieldCheck, Users, Award } from 'lucide-react';
+import { Eye, EyeOff, Users, Award, CheckCircle2 } from 'lucide-react';
 import { api } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { BHUTAN_DZONGKHAGS } from '../lib/date';
@@ -112,40 +112,56 @@ export function RegisterPage() {
     }
   };
 
+  const points =
+    role === 'PARENT'
+      ? [
+          'Every caretaker’s CID and documents are verified',
+          'Minimum 6-month contracts for steady child care',
+          'Clear monthly BTN pricing with no hidden fees',
+        ]
+      : [
+          'Verified profile badge trusted by Bhutanese families',
+          'Predictable 6+ month placements and steady income',
+          'Set your own monthly rate and highlight ECCD skills',
+        ];
+
   return (
-    <div className="grid min-h-[calc(100vh-4rem)] lg:grid-cols-12">
-      {/* Left Split Panel */}
-      <div className="hidden lg:flex lg:col-span-5 flex-col justify-between bg-surface-subtle p-12 border-r border-border">
-        <div className="flex items-center gap-2.5">
-          <img src="/images/nestwell_logo.png" alt="NestWell.BT" className="h-9 w-9 rounded-lg object-contain" />
-          <span className="font-serif text-xl font-semibold text-fg">NestWell.BT</span>
-        </div>
+    <div className="mx-auto flex max-w-7xl flex-col items-start justify-between gap-12 px-4 py-12 sm:px-6 lg:flex-row lg:px-8">
+      {/* Left Open Editorial Column */}
+      <div className="hidden lg:block lg:w-5/12 lg:sticky lg:top-24 space-y-6">
+        <h2 className="font-serif text-4xl font-semibold text-fg leading-[1.15] tracking-tight">
+          {role === 'PARENT'
+            ? 'Find a trusted long-term nanny for your family.'
+            : 'Build a respected career in professional childcare.'}
+        </h2>
+        <p className="text-base text-fg-muted leading-relaxed">
+          {role === 'PARENT'
+            ? 'Browse CID-verified caretakers across Bhutan and arrange secure six-month contracts with predictable monthly payments.'
+            : 'Join verified childcare specialists across Bhutan. Set your monthly rate, showcase your ECCD qualifications, and commit to meaningful placements.'}
+        </p>
 
-        <div className="space-y-6">
-          <h2 className="font-serif text-3xl font-semibold text-fg leading-snug">
-            {role === 'PARENT'
-              ? 'Find a trusted long-term nanny for your family.'
-              : 'Build a respected career in professional childcare.'}
-          </h2>
-          <p className="text-sm text-fg-muted leading-relaxed">
-            {role === 'PARENT'
-              ? 'Browse CID-verified caretakers across Bhutan and arrange secure six-month contracts with predictable monthly payments.'
-              : 'Join verified childcare specialists across Bhutan. Set your monthly rate, showcase your ECCD qualifications, and commit to meaningful 6+ month placements.'}
-          </p>
-          <div className="rounded-xl border border-border bg-surface p-4 text-xs text-fg-muted space-y-1.5">
-            <p className="font-semibold text-fg">Six-Month Commitment Standard</p>
-            <p>All placements on NestWell.BT run for at least six calendar months to protect child wellbeing and caretaker income stability.</p>
-          </div>
-        </div>
+        <ul className="space-y-3 pt-2 text-sm text-fg-muted">
+          {points.map((item) => (
+            <li key={item} className="flex items-center gap-2.5">
+              <CheckCircle2 className="h-4 w-4 shrink-0 text-primary" />
+              <span>{item}</span>
+            </li>
+          ))}
+        </ul>
 
-        <p className="text-xs text-fg-muted">Need help registering? Contact support@nestwell.bt</p>
+        <p className="pt-2 text-xs text-fg-muted">
+          Need help?{' '}
+          <a href="mailto:support@nestwell.bt" className="font-medium text-primary hover:underline">
+            support@nestwell.bt
+          </a>
+        </p>
       </div>
 
-      {/* Right Split Form */}
-      <div className="lg:col-span-7 flex items-center justify-center px-4 py-10 sm:px-10">
-        <div className="w-full max-w-xl space-y-6">
+      {/* Right Clean Form Card */}
+      <div className="w-full max-w-xl lg:w-7/12">
+        <div className="rounded-2xl border border-border bg-surface p-7 shadow-soft sm:p-9 space-y-5">
           <div>
-            <h1 className="font-serif text-3xl font-semibold text-fg">Create Your Account</h1>
+            <h1 className="font-serif text-2xl font-semibold text-fg sm:text-3xl">Create Your Account</h1>
             <p className="mt-1 text-sm text-fg-muted">
               Already registered?{' '}
               <Link to="/login" className="font-medium text-primary hover:underline">
@@ -155,11 +171,11 @@ export function RegisterPage() {
           </div>
 
           {/* Role Switcher */}
-          <div className="grid grid-cols-2 gap-3 rounded-xl border border-border bg-surface-subtle p-1.5">
+          <div className="grid grid-cols-2 gap-2 rounded-xl border border-border bg-surface-subtle p-1">
             <button
               type="button"
               onClick={() => setRole('PARENT')}
-              className={`flex items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-medium transition-all ${
+              className={`flex items-center justify-center gap-2 rounded-lg py-2 text-sm font-medium transition-all ${
                 role === 'PARENT'
                   ? 'bg-surface text-fg shadow-soft'
                   : 'text-fg-muted hover:text-fg'
@@ -170,7 +186,7 @@ export function RegisterPage() {
             <button
               type="button"
               onClick={() => setRole('CARETAKER')}
-              className={`flex items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-medium transition-all ${
+              className={`flex items-center justify-center gap-2 rounded-lg py-2 text-sm font-medium transition-all ${
                 role === 'CARETAKER'
                   ? 'bg-surface text-fg shadow-soft'
                   : 'text-fg-muted hover:text-fg'
@@ -347,7 +363,7 @@ export function RegisterPage() {
               </div>
             )}
 
-            <label className="flex items-start gap-2.5 text-xs text-fg-muted cursor-pointer">
+            <label className="flex items-start gap-2.5 text-xs text-fg-muted cursor-pointer pt-0.5">
               <input
                 type="checkbox"
                 checked={agreeTerms}

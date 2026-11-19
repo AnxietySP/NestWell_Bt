@@ -7,13 +7,15 @@ export function Footer() {
       <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
         <div className="grid gap-8 md:grid-cols-4">
           <div className="space-y-3">
-            <Link to="/" className="flex items-center gap-2.5">
+            <Link to="/" className="flex items-center gap-3">
               <img
                 src="/images/nestwell_logo.png"
                 alt="NestWell.BT Logo"
-                className="h-7 w-7 object-contain"
+                className="h-11 w-11 rounded-lg object-contain"
               />
-              <span className="font-serif text-xl font-bold tracking-tight text-fg">NestWell.BT</span>
+              <span className="font-serif text-xl font-bold tracking-tight text-fg">
+                NestWell<span className="text-primary">.BT</span>
+              </span>
             </Link>
             <p className="text-sm text-fg-muted leading-relaxed">
               Bhutan’s dedicated platform for verified, long-term childcare placements built on trust, stability, and family peace of mind.

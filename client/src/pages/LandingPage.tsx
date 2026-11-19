@@ -52,7 +52,6 @@ function Hero() {
     <section className="mx-auto max-w-7xl px-4 pt-12 sm:px-6 lg:px-8 lg:pt-16">
       <div className="grid items-center gap-12 lg:grid-cols-12">
         <div className="space-y-8 lg:col-span-7">
-          
           <div className="space-y-6">
             <div className="inline-flex rounded-full border border-border bg-surface p-1 text-sm font-medium">
               {[
@@ -90,16 +89,14 @@ function Hero() {
               </Button>
             </Link>
           </div>
-
         </div>
 
         <div className="lg:col-span-5">
           <div className="overflow-hidden rounded-2xl border border-border bg-surface p-2 shadow-elevated">
-            {/* Changed image height from 420px to 320px to remove the massive gap */}
             <img
-              src="public\images\LandingPic.png"
+              src="/images/LandingPic.png"
               alt="Caregiver reading with a young child"
-              className="h-[320px] w-full rounded-xl object-cover"
+              className="h-[340px] w-full rounded-xl object-cover"
             />
             <div className="mt-3 flex items-center gap-2.5 rounded-xl bg-surface-subtle px-4 py-3">
               <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
