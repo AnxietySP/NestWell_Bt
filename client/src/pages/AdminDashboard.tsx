@@ -1,1559 +1,1218 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
+  LayoutDashboard,
   ShieldCheck,
+  BarChart3,
+  FileCheck2,
   Users,
+  Clock,
   Calendar,
-  FileCheck,
   CheckCircle2,
   XCircle,
-  RefreshCw,
-  TrendingUp,
-  MapPin,
-  Eye,
   Search,
-  X,
+  LogOut,
+  Camera,
+  Trash2,
+  AlertTriangle,
+  Sparkles,
   FileText,
-  UserCheck,
-  UserX,
-  Phone,
-  Mail,
-  ChevronLeft,
-  ChevronRight,
-  ArrowUpDown,
-  MoreVertical,
-  Award,
-  Briefcase,
-  Banknote,
-  Clock,
-  SlidersHorizontal,
+  ExternalLink,
+  MapPin,
+  RefreshCw,
 } from 'lucide-react';
 import { api } from '../lib/api';
+import { useAuth } from '../context/AuthContext';
 import { formatBtn, formatDisplayDate } from '../lib/date';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
+import { Modal } from '../components/ui/Modal';
 
-type TimeRange = '7D' | '6M';
+type SidebarSection = 'OVERVIEW' | 'VERIFICATIONS' | 'ANALYTICS' | 'CONTRACTS';
 type VerificationFilter = 'ALL' | 'PENDING' | 'APPROVED' | 'REJECTED';
-type UserRoleFilter = 'ALL' | 'PARENT' | 'CARETAKER' | 'ADMIN';
-type UserStatusFilter = 'ALL' | 'ACTIVE' | 'SUSPENDED';
 
-const USERS_PAGE_SIZE = 7;
-const APPS_PAGE_SIZE = 6;
+interface AdminCaretakerRow {
+  id: string;
+  fullName: string;
+  email: string;
+  phone: string;
+  dzongkhag: string;
+  address?: string;
+  qualifications: string;
+  yearsExperience: number;
+  monthlyRateBtn: number;
+  verificationStatus: 'PENDING' | 'APPROVED' | 'REJECTED';
+  idDocumentPath?: string | null;
+  rejectionReason?: string | null;
+  avatarUrl?: string | null;
+}
 
-function getInitials(name: string) {
-  if (!name) return '?';
+interface AdminStats {
+  totalParents: number;
+  totalCaretakers: number;
+  verifiedCaretakers: number;
+  pendingCaretakers: number;
+  activeContracts: number;
+}
+
+function getInitials(name?: string) {
+  if (!name) return 'AD';
   const parts = name.trim().split(/\s+/);
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  return parts.length === 1
+    ? parts[0].slice(0, 2).toUpperCase()
+    : (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function resolveDocumentUrl(rawPath?: string | null): string | null {
+  if (!rawPath) return null;
+  if (/^https?:\/\//i.test(rawPath)) return rawPath;
+  const cleaned = rawPath.replace(/^\/+/, '');
+  const baseUrl = api.defaults.baseURL || '';
+  const apiBase = /^https?:\/\//i.test(baseUrl)
+    ? baseUrl.replace(/\/api\/?$/, '')
+    : window.location.origin;
+  return `${apiBase}/${cleaned}`;
 }
 
 export function AdminDashboard() {
-  const [stats, setStats] = useState<any>(null);
-  const [applications, setApplications] = useState<any[]>([]);
-  const [users, setUsers] = useState<any[]>([]);
-  const [range, setRange] = useState<TimeRange>('7D');
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
+  const { user, refreshUser, logout } = useAuth();
+  const navigate = useNavigate();
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Verification Queue Filters & Pagination
-  const [verificationFilter, setVerificationFilter] = useState<VerificationFilter>('ALL');
-  const [appSearch, setAppSearch] = useState('');
-  const [appDzongkhag, setAppDzongkhag] = useState('ALL');
-  const [appPage, setAppPage] = useState(1);
+  const [stats, setStats] = useState<AdminStats>({
+    totalParents: 0,
+    totalCaretakers: 0,
+    verifiedCaretakers: 0,
+    pendingCaretakers: 0,
+    activeContracts: 0,
+  });
+  const [caretakers, setCaretakers] = useState<AdminCaretakerRow[]>([]);
+  const [bookings, setBookings] = useState<any[]>([]);
+  const [loadingData, setLoadingData] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  // Platform Users Filters, Sorting & Pagination
-  const [userSearch, setUserSearch] = useState('');
-  const [userRoleFilter, setUserRoleFilter] = useState<UserRoleFilter>('ALL');
-  const [userStatusFilter, setUserStatusFilter] = useState<UserStatusFilter>('ALL');
-  const [userPage, setUserPage] = useState(1);
-  const [userSortAsc, setUserSortAsc] = useState(true);
+  const [activeSection, setActiveSection] = useState<SidebarSection>('OVERVIEW');
+  const [statusFilter, setStatusFilter] = useState<VerificationFilter>('ALL');
+  const [searchQuery, setSearchQuery] = useState('');
 
-  // Three-dot action menu state
-  const [openMenuUserId, setOpenMenuUserId] = useState<string | null>(null);
-  const menuContainerRef = useRef<HTMLDivElement | null>(null);
+  // Modals & Action States
+  const [cidModalCaretaker, setCidModalCaretaker] = useState<AdminCaretakerRow | null>(null);
+  const [rejectModalCaretaker, setRejectModalCaretaker] = useState<AdminCaretakerRow | null>(null);
+  const [rejectionReason, setRejectionReason] = useState('');
+  const [logoutModalOpen, setLogoutModalOpen] = useState(false);
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const [actionBusyId, setActionBusyId] = useState<string | null>(null);
+  const [bannerMessage, setBannerMessage] = useState<string | null>(null);
 
-  // Right-side Inspection Drawer state
-  const [selectedDrawerItem, setSelectedDrawerItem] = useState<{
-    kind: 'APPLICATION' | 'USER';
-    data: any;
-  } | null>(null);
-
-  // CID Document Preview Modal state
-  const [docPreview, setDocPreview] = useState<{
-    name: string;
-    url: string;
-    type: string;
-  } | null>(null);
-  const [loadingDocId, setLoadingDocId] = useState<string | null>(null);
-
-  const loadAdminData = async (silent = false) => {
-    if (!silent) setIsRefreshing(true);
+  const loadAdminData = async () => {
+    setLoadingData(true);
+    setLoadError(null);
     try {
-      const [sRes, vRes, uRes] = await Promise.all([
-        api.get('/admin/stats'),
-        api.get('/admin/verifications'),
-        api.get('/admin/users'),
+      const [statsRes, caretakersRes, usersRes, bookingsRes] = await Promise.all([
+        api.get('/admin/stats').catch(() => api.get('/admin/overview').catch(() => ({ data: {} }))),
+        api.get('/admin/caretakers').catch(() => ({ data: null })),
+        api.get('/admin/users').catch(() => ({ data: null })),
+        api.get('/admin/bookings').catch(() =>
+          api.get('/bookings').catch(() => ({ data: { bookings: [] } }))
+        ),
       ]);
-      const nextStats = sRes.data.stats;
-      const nextApps = vRes.data.applications || [];
-      const nextUsers = uRes.data.users || [];
 
-      setStats(nextStats);
-      setApplications(nextApps);
-      setUsers(nextUsers);
-      setLastUpdated(new Date());
+      let rawCaretakers: any[] = [];
+      if (Array.isArray(caretakersRes.data?.caretakers)) {
+        rawCaretakers = caretakersRes.data.caretakers;
+      } else if (Array.isArray(caretakersRes.data)) {
+        rawCaretakers = caretakersRes.data;
+      } else if (Array.isArray(usersRes.data?.caretakers)) {
+        rawCaretakers = usersRes.data.caretakers;
+      } else if (Array.isArray(usersRes.data?.users)) {
+        rawCaretakers = usersRes.data.users.filter((u: any) => u.role === 'CARETAKER');
+      } else if (Array.isArray(usersRes.data)) {
+        rawCaretakers = usersRes.data.filter((u: any) => u.role === 'CARETAKER');
+      }
 
-      // Keep open drawer synchronized after approve/reject/suspend actions
-      setSelectedDrawerItem((prev) => {
-        if (!prev) return null;
-        if (prev.kind === 'APPLICATION') {
-          const updated = nextApps.find((a: any) => a.id === prev.data.id);
-          return updated ? { kind: 'APPLICATION', data: updated } : prev;
-        }
-        const updated = nextUsers.find((u: any) => u.id === prev.data.id);
-        return updated ? { kind: 'USER', data: updated } : prev;
+      const normalized: AdminCaretakerRow[] = rawCaretakers.map((c: any) => ({
+        id: c.id || c.userId || c.user_id,
+        fullName: c.fullName || c.full_name || 'Applicant',
+        email: c.email || '',
+        phone: c.phone || '',
+        dzongkhag: c.dzongkhag || 'Thimphu',
+        address: c.address || '',
+        qualifications: c.qualifications || 'Not specified',
+        yearsExperience: Number(c.yearsExperience ?? c.years_experience ?? 0),
+        monthlyRateBtn: Number(c.monthlyRateBtn ?? c.monthly_rate_btn ?? 0),
+        verificationStatus:
+          c.verificationStatus || c.verification_status || 'PENDING',
+        idDocumentPath:
+          c.idDocumentPath || c.id_document_path || c.idDocumentUrl || null,
+        rejectionReason: c.rejectionReason || c.rejection_reason || null,
+        avatarUrl: c.avatarUrl || c.avatar_url || null,
+      }));
+
+      setCaretakers(normalized);
+
+      const rawBookings = bookingsRes.data?.bookings || bookingsRes.data || [];
+      setBookings(Array.isArray(rawBookings) ? rawBookings : []);
+
+      const s = statsRes.data?.stats || statsRes.data || {};
+      const allUsersList: any[] =
+        usersRes.data?.users || (Array.isArray(usersRes.data) ? usersRes.data : []);
+      const parentsFromUsers = allUsersList.filter((u: any) => u.role === 'PARENT').length;
+
+      const verifiedCount = normalized.filter(
+        (c) => c.verificationStatus === 'APPROVED'
+      ).length;
+      const pendingCount = normalized.filter(
+        (c) => c.verificationStatus === 'PENDING'
+      ).length;
+
+      setStats({
+        totalParents: Number(s.totalParents ?? s.parentsCount ?? parentsFromUsers),
+        totalCaretakers: Number(s.totalCaretakers ?? normalized.length),
+        verifiedCaretakers: Number(s.verifiedCaretakers ?? verifiedCount),
+        pendingCaretakers: Number(
+          s.pendingVerifications ?? s.pendingCaretakers ?? pendingCount
+        ),
+        activeContracts: Number(
+          s.activeContracts ??
+            (Array.isArray(rawBookings)
+              ? rawBookings.filter((b: any) =>
+                  ['CONFIRMED', 'ACTIVE', 'ACCEPTED'].includes(b.status)
+                ).length
+              : 0)
+        ),
       });
+    } catch (err: any) {
+      setLoadError(
+        err?.response?.data?.message || 'Unable to load administrator records.'
+      );
     } finally {
-      if (!silent) setIsRefreshing(false);
+      setLoadingData(false);
     }
   };
 
   useEffect(() => {
     loadAdminData();
-    const interval = setInterval(() => {
-      loadAdminData(true);
-    }, 15000);
-    return () => clearInterval(interval);
   }, []);
 
-  // Close three-dot dropdown on outside click or Escape
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (menuContainerRef.current && !menuContainerRef.current.contains(e.target as Node)) {
-        setOpenMenuUserId(null);
-      }
-    };
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setOpenMenuUserId(null);
-        if (docPreview) {
-          closeDocPreview();
-        } else if (selectedDrawerItem) {
-          setSelectedDrawerItem(null);
-        }
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [docPreview, selectedDrawerItem]);
+  // =========================================================================
+  // ADMIN PROFILE PICTURE UPDATE & DELETE HANDLERS
+  // =========================================================================
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-  useEffect(() => {
-    setAppPage(1);
-  }, [verificationFilter, appSearch, appDzongkhag]);
-
-  useEffect(() => {
-    setUserPage(1);
-  }, [userSearch, userRoleFilter, userStatusFilter]);
-
-  const handleViewDocument = async (app: any) => {
-    if (!app?.id) return;
-    if (!app.idDocumentPath && app.idDocumentPath !== undefined) {
-      window.alert(`No Citizenship ID document has been uploaded yet for ${app.fullName}.`);
+    if (!file.type.startsWith('image/')) {
+      window.alert('Please select a valid image file (JPG, PNG, or WebP).');
       return;
     }
-    setLoadingDocId(app.id);
+
+    setAvatarBusy(true);
+    setBannerMessage(null);
     try {
-      const res = await api.get(`/admin/documents/${app.id}`, {
-        responseType: 'blob',
+      const formData = new FormData();
+      formData.append('avatar', file);
+      await api.patch('/auth/me/avatar', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
       });
-      const contentType = res.headers['content-type'] || 'image/jpeg';
-      const blobUrl = URL.createObjectURL(new Blob([res.data], { type: contentType }));
-      setDocPreview({
-        name: app.fullName,
-        url: blobUrl,
-        type: contentType,
+      await refreshUser();
+      setBannerMessage('Admin profile picture updated.');
+    } catch (err: any) {
+      window.alert(err?.response?.data?.message || 'Unable to update profile picture.');
+    } finally {
+      setAvatarBusy(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleAvatarRemove = async () => {
+    if (!user?.avatarUrl) return;
+    setAvatarBusy(true);
+    setBannerMessage(null);
+    try {
+      await api
+        .delete('/auth/me/avatar')
+        .catch(() => api.patch('/auth/me/avatar', { removeAvatar: true, avatarUrl: null }));
+      await refreshUser();
+      setBannerMessage('Admin profile picture removed.');
+    } catch (err: any) {
+      window.alert(err?.response?.data?.message || 'Unable to remove profile picture.');
+    } finally {
+      setAvatarBusy(false);
+    }
+  };
+
+  // =========================================================================
+  // APPROVE / REJECT CARETAKER VERIFICATION
+  // =========================================================================
+  const handleVerifyDecision = async (
+    caretakerId: string,
+    status: 'APPROVED' | 'REJECTED',
+    reason?: string
+  ) => {
+    setActionBusyId(caretakerId);
+    setBannerMessage(null);
+    try {
+      await api.patch(`/admin/caretakers/${caretakerId}/verify`, {
+        status,
+        rejectionReason: reason?.trim() || undefined,
       });
+      setBannerMessage(
+        status === 'APPROVED'
+          ? 'Caretaker Citizenship ID approved and profile published.'
+          : 'Caretaker application rejected.'
+      );
+      setCidModalCaretaker(null);
+      setRejectModalCaretaker(null);
+      setRejectionReason('');
+      await loadAdminData();
     } catch (err: any) {
       window.alert(
-        err?.response?.data?.message || 'Unable to load the uploaded Citizenship ID document.'
+        err?.response?.data?.message || 'Unable to update caretaker verification.'
       );
     } finally {
-      setLoadingDocId(null);
+      setActionBusyId(null);
     }
   };
 
-  const closeDocPreview = () => {
-    if (docPreview?.url) {
-      URL.revokeObjectURL(docPreview.url);
-    }
-    setDocPreview(null);
+  const handleConfirmLogout = () => {
+    setLogoutModalOpen(false);
+    logout();
+    navigate('/login');
   };
 
-  const handleVerify = async (caretakerId: string, decision: 'APPROVED' | 'REJECTED') => {
-    const rejectionReason =
-      decision === 'REJECTED'
-        ? window.prompt('Enter reason for rejecting this Citizenship ID / application:') ||
-          'Incomplete identification document'
-        : undefined;
-    await api.patch(`/admin/verifications/${caretakerId}`, { decision, rejectionReason });
-    await loadAdminData();
-  };
+  // Derived Metrics & Analytics Data
+  const approvedCount = useMemo(
+    () => caretakers.filter((c) => c.verificationStatus === 'APPROVED').length,
+    [caretakers]
+  );
+  const pendingCount = useMemo(
+    () => caretakers.filter((c) => c.verificationStatus === 'PENDING').length,
+    [caretakers]
+  );
+  const rejectedCount = useMemo(
+    () => caretakers.filter((c) => c.verificationStatus === 'REJECTED').length,
+    [caretakers]
+  );
 
-  const handleToggleUser = async (userId: string) => {
-    setOpenMenuUserId(null);
-    await api.patch(`/admin/users/${userId}/toggle-active`);
-    await loadAdminData();
-  };
-
-  // Distinct Dzongkhags for Verification Queue filter
-  const applicationDzongkhags = useMemo(() => {
-    const set = new Set<string>();
-    applications.forEach((a) => {
-      if (a.dzongkhag) set.add(a.dzongkhag);
+  const dzongkhagChartData = useMemo(() => {
+    const counts = new Map<string, number>();
+    caretakers.forEach((c) => {
+      const dz = c.dzongkhag || 'Other';
+      counts.set(dz, (counts.get(dz) || 0) + 1);
     });
-    return Array.from(set).sort();
-  }, [applications]);
+    const entries = Array.from(counts.entries())
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 6);
+    const max = Math.max(1, ...entries.map((e) => e.count));
+    return entries.map((e) => ({
+      ...e,
+      pct: Math.max(16, Math.round((e.count / max) * 100)),
+    }));
+  }, [caretakers]);
 
-  // Filtered Verification Applications
-  const filteredApplications = useMemo(() => {
-    const q = appSearch.trim().toLowerCase();
-    return applications.filter((a) => {
-      if (verificationFilter !== 'ALL' && a.verificationStatus !== verificationFilter) return false;
-      if (appDzongkhag !== 'ALL' && a.dzongkhag !== appDzongkhag) return false;
+  const filteredCaretakers = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return caretakers.filter((c) => {
+      if (statusFilter !== 'ALL' && c.verificationStatus !== statusFilter) {
+        return false;
+      }
       if (!q) return true;
       return (
-        a.fullName?.toLowerCase().includes(q) ||
-        a.email?.toLowerCase().includes(q) ||
-        a.phone?.toLowerCase().includes(q) ||
-        a.qualifications?.toLowerCase().includes(q) ||
-        a.dzongkhag?.toLowerCase().includes(q)
+        c.fullName.toLowerCase().includes(q) ||
+        c.email.toLowerCase().includes(q) ||
+        c.phone.toLowerCase().includes(q) ||
+        c.dzongkhag.toLowerCase().includes(q) ||
+        c.qualifications.toLowerCase().includes(q)
       );
     });
-  }, [applications, verificationFilter, appDzongkhag, appSearch]);
+  }, [caretakers, statusFilter, searchQuery]);
 
-  const totalAppPages = Math.max(1, Math.ceil(filteredApplications.length / APPS_PAGE_SIZE));
-  const paginatedApplications = useMemo(() => {
-    const start = (appPage - 1) * APPS_PAGE_SIZE;
-    return filteredApplications.slice(start, start + APPS_PAGE_SIZE);
-  }, [filteredApplications, appPage]);
+  const navItems: {
+    id: SidebarSection;
+    label: string;
+    icon: React.ReactNode;
+    badge?: number;
+  }[] = [
+    { id: 'OVERVIEW', label: 'Dashboard', icon: <LayoutDashboard className="h-4 w-4" /> },
+    {
+      id: 'VERIFICATIONS',
+      label: 'Verification Queue',
+      icon: <ShieldCheck className="h-4 w-4" />,
+      badge: pendingCount || undefined,
+    },
+    {
+      id: 'ANALYTICS',
+      label: 'Platform Graph',
+      icon: <BarChart3 className="h-4 w-4" />,
+    },
+    {
+      id: 'CONTRACTS',
+      label: '6-Mo Contracts',
+      icon: <FileCheck2 className="h-4 w-4" />,
+      badge: bookings.length || undefined,
+    },
+  ];
 
-  // Filtered & Sorted Platform Users
-  const filteredUsers = useMemo(() => {
-    const query = userSearch.trim().toLowerCase();
-    const list = users.filter((u) => {
-      if (userRoleFilter !== 'ALL' && u.role !== userRoleFilter) return false;
-      if (userStatusFilter === 'ACTIVE' && !u.isActive) return false;
-      if (userStatusFilter === 'SUSPENDED' && u.isActive) return false;
-
-      if (!query) return true;
-      return (
-        u.fullName?.toLowerCase().includes(query) ||
-        u.email?.toLowerCase().includes(query) ||
-        u.dzongkhag?.toLowerCase().includes(query) ||
-        String(u.id).toLowerCase().includes(query)
-      );
-    });
-
-    return list.sort((a, b) =>
-      userSortAsc
-        ? (a.fullName || '').localeCompare(b.fullName || '')
-        : (b.fullName || '').localeCompare(a.fullName || '')
-    );
-  }, [users, userRoleFilter, userStatusFilter, userSearch, userSortAsc]);
-
-  const totalUserPages = Math.max(1, Math.ceil(filteredUsers.length / USERS_PAGE_SIZE));
-  const paginatedUsers = useMemo(() => {
-    const start = (userPage - 1) * USERS_PAGE_SIZE;
-    return filteredUsers.slice(start, start + USERS_PAGE_SIZE);
-  }, [filteredUsers, userPage]);
-
-  // Summary counts
-  const suspendedCount = useMemo(() => users.filter((u) => !u.isActive).length, [users]);
-  const totalUsersCount = users.length;
-
-  // Registration time-series chart
-  const chartSeries = useMemo(() => {
-    const now = new Date();
-    const nonAdminUsers = users.filter((u) => u.role !== 'ADMIN');
-
-    if (range === '7D') {
-      const days: { key: string; label: string; parents: number; caretakers: number }[] = [];
-      for (let i = 6; i >= 0; i--) {
-        const d = new Date(now);
-        d.setDate(now.getDate() - i);
-        const key = d.toISOString().slice(0, 10);
-        const label = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-        days.push({ key, label, parents: 0, caretakers: 0 });
-      }
-
-      nonAdminUsers.forEach((u) => {
-        const rawDate = u.createdAt || u.created_at;
-        if (!rawDate) return;
-        const key = new Date(rawDate).toISOString().slice(0, 10);
-        const bucket = days.find((d) => d.key === key);
-        if (bucket) {
-          if (u.role === 'PARENT') bucket.parents += 1;
-          if (u.role === 'CARETAKER') bucket.caretakers += 1;
-        }
-      });
-
-      const hasDatedUsers = days.some((d) => d.parents > 0 || d.caretakers > 0);
-      if (!hasDatedUsers && stats) {
-        days[days.length - 1].parents = stats.totalParents || 0;
-        days[days.length - 1].caretakers = stats.totalCaretakers || 0;
-      }
-
-      return days;
-    } else {
-      const months: { key: string; label: string; parents: number; caretakers: number }[] = [];
-      for (let i = 5; i >= 0; i--) {
-        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-        const label = d.toLocaleDateString('en-US', { month: 'short' });
-        months.push({ key, label, parents: 0, caretakers: 0 });
-      }
-
-      nonAdminUsers.forEach((u) => {
-        const rawDate = u.createdAt || u.created_at;
-        if (!rawDate) return;
-        const dt = new Date(rawDate);
-        const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
-        const bucket = months.find((m) => m.key === key);
-        if (bucket) {
-          if (u.role === 'PARENT') bucket.parents += 1;
-          if (u.role === 'CARETAKER') bucket.caretakers += 1;
-        }
-      });
-
-      const hasDatedUsers = months.some((m) => m.parents > 0 || m.caretakers > 0);
-      if (!hasDatedUsers && stats) {
-        months[months.length - 1].parents = stats.totalParents || 0;
-        months[months.length - 1].caretakers = stats.totalCaretakers || 0;
-      }
-
-      return months;
-    }
-  }, [users, stats, range]);
-
-  const maxBucketValue = useMemo(() => {
-    return Math.max(1, ...chartSeries.map((d) => Math.max(d.parents, d.caretakers)));
-  }, [chartSeries]);
-
-  const dzongkhagBreakdown = useMemo(() => {
-    const counts: Record<string, number> = {};
-    users
-      .filter((u) => u.role !== 'ADMIN' && u.dzongkhag)
-      .forEach((u) => {
-        counts[u.dzongkhag] = (counts[u.dzongkhag] || 0) + 1;
-      });
-    return Object.entries(counts)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5);
-  }, [users]);
-
-  const totalRegistered = (stats?.totalParents || 0) + (stats?.totalCaretakers || 0);
-  const parentPct =
-    totalRegistered > 0 ? Math.round(((stats?.totalParents || 0) / totalRegistered) * 100) : 50;
-  const caretakerPct = totalRegistered > 0 ? 100 - parentPct : 50;
-
-  // Find matching caretaker application record when inspecting a CARETAKER user in drawer
-  const findLinkedApplication = (userRecord: any) => {
-    if (!userRecord) return null;
-    return (
-      applications.find(
-        (a) => a.userId === userRecord.id || a.email?.toLowerCase() === userRecord.email?.toLowerCase()
-      ) || null
-    );
-  };
+  const cidDocumentUrl = resolveDocumentUrl(cidModalCaretaker?.idDocumentPath);
+  const isPdfDocument = Boolean(
+    cidDocumentUrl && cidDocumentUrl.toLowerCase().endsWith('.pdf')
+  );
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 space-y-8">
-      {/* Header + Live Sync Status */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="font-serif text-3xl font-semibold tracking-tight text-fg">
-            Platform Administration
-          </h1>
-          <p className="mt-1 text-sm text-fg-muted">
-            Verify caretaker Citizenship IDs, manage user accounts, and monitor live platform growth.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <span className="inline-flex items-center gap-2 rounded-full border border-border bg-surface px-3.5 py-1.5 text-xs font-medium text-fg-muted shadow-soft">
-            <span className="relative flex h-2 w-2">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
-            </span>
-            Live •{' '}
-            {lastUpdated
-              ? lastUpdated.toLocaleTimeString([], {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                  second: '2-digit',
-                })
-              : 'Syncing...'}
-          </span>
-
-          <Button size="sm" variant="outline" onClick={() => loadAdminData()} disabled={isRefreshing}>
-            <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? 'animate-spin' : ''}`} /> Refresh
-          </Button>
-        </div>
-      </div>
-
-      {/* 5 Summary Statistic Cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        <div className="rounded-xl border border-border bg-surface p-5 shadow-soft flex items-start justify-between">
-          <div>
-            <p className="text-xs font-medium text-fg-muted">Total Users</p>
-            <p className="mt-2 font-serif text-3xl font-semibold text-fg">{totalUsersCount}</p>
-            <p className="mt-1 text-xs text-fg-muted">All registered roles</p>
-          </div>
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-            <Users className="h-5 w-5" />
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-border bg-surface p-5 shadow-soft flex items-start justify-between">
-          <div>
-            <p className="text-xs font-medium text-fg-muted">Parents</p>
-            <p className="mt-2 font-serif text-3xl font-semibold text-fg">
-              {stats?.totalParents ?? 0}
-            </p>
-            <p className="mt-1 text-xs text-fg-muted">Family accounts</p>
-          </div>
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-            <UserCheck className="h-5 w-5" />
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-border bg-surface p-5 shadow-soft flex items-start justify-between">
-          <div>
-            <p className="text-xs font-medium text-fg-muted">Caretakers</p>
-            <p className="mt-2 font-serif text-3xl font-semibold text-fg">
-              {stats?.verifiedCaretakers ?? 0}{' '}
-              <span className="text-sm font-normal text-fg-muted">
-                / {stats?.totalCaretakers ?? 0}
-              </span>
-            </p>
-            <p className="mt-1 text-xs text-fg-muted">Verified / total</p>
-          </div>
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-700">
-            <ShieldCheck className="h-5 w-5" />
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-border bg-surface p-5 shadow-soft flex items-start justify-between">
-          <div>
-            <p className="text-xs font-medium text-fg-muted">Pending Verification</p>
-            <p className="mt-2 font-serif text-3xl font-semibold text-fg">
-              {stats?.pendingVerifications ?? 0}
-            </p>
-            <p className="mt-1 text-xs text-fg-muted">Awaiting CID audit</p>
-          </div>
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-500/10 text-amber-600">
-            <FileCheck className="h-5 w-5" />
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-border bg-surface p-5 shadow-soft flex items-start justify-between">
-          <div>
-            <p className="text-xs font-medium text-fg-muted">Suspended Accounts</p>
-            <p className="mt-2 font-serif text-3xl font-semibold text-fg">{suspendedCount}</p>
-            <p className="mt-1 text-xs text-fg-muted">
-              {stats?.activeContracts ?? 0} active contracts
-            </p>
-          </div>
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-red-500/10 text-red-600">
-            <UserX className="h-5 w-5" />
-          </div>
-        </div>
-      </div>
-
-      {/* Real-Time Registration Analytics */}
-      <div className="grid gap-6 lg:grid-cols-12">
-        <div className="lg:col-span-8 rounded-xl border border-border bg-surface p-6 shadow-soft flex flex-col justify-between space-y-6">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h2 className="font-serif text-xl font-semibold text-fg flex items-center gap-2">
-                <TrendingUp className="h-5 w-5 text-primary" /> Real-Time Registrations
-              </h2>
-              <p className="text-xs text-fg-muted">
-                Live signups across Parents and Caretakers ({totalRegistered} total accounts)
-              </p>
-            </div>
-
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-3 text-xs text-fg-muted">
-                <span className="flex items-center gap-1.5">
-                  <span className="h-2.5 w-2.5 rounded-sm bg-primary" /> Parents
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span className="h-2.5 w-2.5 rounded-sm bg-amber-500" /> Caretakers
-                </span>
-              </div>
-
-              <div className="inline-flex rounded-lg border border-border bg-surface-subtle p-0.5 text-xs">
-                {(['7D', '6M'] as TimeRange[]).map((t) => (
-                  <button
-                    key={t}
-                    type="button"
-                    onClick={() => setRange(t)}
-                    className={`rounded-md px-2.5 py-1 font-medium transition-colors ${
-                      range === t ? 'bg-surface text-fg shadow-soft' : 'text-fg-muted hover:text-fg'
-                    }`}
-                  >
-                    {t === '7D' ? '7 Days' : '6 Months'}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <div className="relative pt-6">
-            <div className="grid h-48 grid-cols-6 sm:grid-cols-7 items-end gap-3 border-b border-border pb-3 px-2">
-              {chartSeries.map((bucket, idx) => {
-                const parentHeight = Math.round((bucket.parents / maxBucketValue) * 100);
-                const caretakerHeight = Math.round((bucket.caretakers / maxBucketValue) * 100);
-                const isHovered = hoveredIdx === idx;
-
-                return (
-                  <div
-                    key={bucket.key}
-                    onMouseEnter={() => setHoveredIdx(idx)}
-                    onMouseLeave={() => setHoveredIdx(null)}
-                    className="relative flex h-full flex-col items-center justify-end gap-2 group"
-                  >
-                    {isHovered && (
-                      <div className="absolute -top-9 z-10 whitespace-nowrap rounded-lg border border-border bg-surface px-2.5 py-1 text-[11px] font-medium text-fg shadow-elevated">
-                        {bucket.label}: <span className="text-primary">{bucket.parents}P</span> •{' '}
-                        <span className="text-amber-600">{bucket.caretakers}C</span>
-                      </div>
-                    )}
-
-                    <div className="flex h-40 w-full max-w-[48px] items-end justify-center gap-1.5">
-                      <div className="flex h-full w-1/2 flex-col items-center justify-end gap-1">
-                        {bucket.parents > 0 && (
-                          <span className="text-[10px] font-semibold text-primary">
-                            {bucket.parents}
-                          </span>
-                        )}
-                        <div
-                          style={{
-                            height: `${bucket.parents > 0 ? Math.max(parentHeight, 10) : 3}%`,
-                          }}
-                          className={`w-full rounded-t-md transition-all duration-500 ${
-                            bucket.parents > 0 ? 'bg-primary group-hover:opacity-90' : 'bg-border/60'
-                          }`}
-                        />
-                      </div>
-
-                      <div className="flex h-full w-1/2 flex-col items-center justify-end gap-1">
-                        {bucket.caretakers > 0 && (
-                          <span className="text-[10px] font-semibold text-amber-600">
-                            {bucket.caretakers}
-                          </span>
-                        )}
-                        <div
-                          style={{
-                            height: `${
-                              bucket.caretakers > 0 ? Math.max(caretakerHeight, 10) : 3
-                            }%`,
-                          }}
-                          className={`w-full rounded-t-md transition-all duration-500 ${
-                            bucket.caretakers > 0
-                              ? 'bg-amber-500 group-hover:opacity-90'
-                              : 'bg-border/60'
-                          }`}
-                        />
-                      </div>
+    <div className="min-h-screen bg-bg">
+      <div className="flex min-h-screen w-full flex-col lg:flex-row">
+        {/* ================================================================= */}
+        {/* LEFT SIDEBAR RAIL                                                 */}
+        {/* ================================================================= */}
+        <aside className="w-full shrink-0 border-b border-border bg-surface px-4 py-5 lg:sticky lg:top-0 lg:h-screen lg:w-64 lg:overflow-y-auto lg:border-b-0 lg:border-r lg:px-5 lg:py-7 flex flex-col justify-between">
+          <div className="space-y-6">
+            {/* Admin Profile & Avatar Controls */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between lg:block">
+                <div className="flex items-center gap-3">
+                  {user?.avatarUrl ? (
+                    <img
+                      src={user.avatarUrl}
+                      alt={user.fullName}
+                      className="h-11 w-11 shrink-0 rounded-xl object-cover border border-border"
+                    />
+                  ) : (
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#242926] text-sm font-semibold text-white">
+                      {getInitials(user?.fullName)}
                     </div>
+                  )}
+                  <div className="min-w-0">
+                    <p className="truncate font-serif text-base font-semibold text-fg">
+                      {user?.fullName || 'Administrator'}
+                    </p>
+                    <p className="truncate text-xs text-fg-muted">
+                      NestWell.BT • Admin
+                    </p>
                   </div>
-                );
-              })}
-            </div>
+                </div>
 
-            <div className="mt-2 grid grid-cols-6 sm:grid-cols-7 gap-3 px-2 text-center text-[11px] font-medium text-fg-muted">
-              {chartSeries.map((bucket) => (
-                <span key={bucket.key} className="truncate">
-                  {bucket.label}
-                </span>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="lg:col-span-4 rounded-xl border border-border bg-surface p-6 shadow-soft flex flex-col justify-between space-y-6">
-          <div className="space-y-4">
-            <h2 className="font-serif text-xl font-semibold text-fg">Registration Mix</h2>
-
-            <div className="space-y-2">
-              <div className="flex justify-between text-xs font-medium">
-                <span className="text-primary">Parents ({parentPct}%)</span>
-                <span className="text-amber-600">Caretakers ({caretakerPct}%)</span>
+                {/* Mobile Logout Button */}
+                <button
+                  type="button"
+                  onClick={() => setLogoutModalOpen(true)}
+                  className="lg:hidden inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-fg-muted hover:text-red-600"
+                >
+                  <LogOut className="h-3.5 w-3.5" /> Log out
+                </button>
               </div>
-              <div className="flex h-3 w-full overflow-hidden rounded-full bg-surface-subtle">
-                <div
-                  style={{ width: `${parentPct}%` }}
-                  className="bg-primary transition-all duration-500"
+
+              {/* Update / Delete Profile Picture Controls */}
+              <div className="flex items-center gap-1.5 pt-0.5">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleAvatarUpload}
                 />
-                <div
-                  style={{ width: `${caretakerPct}%` }}
-                  className="bg-amber-500 transition-all duration-500"
-                />
-              </div>
-              <div className="flex justify-between text-[11px] text-fg-muted">
-                <span>{stats?.totalParents || 0} accounts</span>
-                <span>{stats?.totalCaretakers || 0} accounts</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-3 border-t border-border pt-4">
-            <p className="text-xs font-semibold uppercase tracking-wider text-fg-muted flex items-center gap-1.5">
-              <MapPin className="h-3.5 w-3.5 text-primary" /> Top Dzongkhags
-            </p>
-            {dzongkhagBreakdown.length === 0 ? (
-              <p className="text-xs text-fg-muted">No regional data yet.</p>
-            ) : (
-              <div className="space-y-2.5">
-                {dzongkhagBreakdown.map(([dzongkhag, count]) => {
-                  const pct = totalRegistered > 0 ? Math.round((count / totalRegistered) * 100) : 0;
-                  return (
-                    <div key={dzongkhag} className="space-y-1">
-                      <div className="flex justify-between text-xs">
-                        <span className="font-medium text-fg">{dzongkhag}</span>
-                        <span className="text-fg-muted">
-                          {count} ({pct}%)
-                        </span>
-                      </div>
-                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-subtle">
-                        <div
-                          style={{ width: `${pct}%` }}
-                          className="h-full rounded-full bg-primary/80 transition-all duration-500"
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* ===================================================================== */}
-      {/* 1. CARETAKER VERIFICATION QUEUE (Modern Application Card Layout)      */}
-      {/* ===================================================================== */}
-      <section className="rounded-2xl border border-border bg-surface shadow-soft overflow-hidden">
-        {/* Header & Filter Controls */}
-        <div className="border-b border-border px-6 py-5 space-y-4">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <h2 className="font-serif text-xl font-semibold text-fg flex items-center gap-2">
-                <ShieldCheck className="h-5 w-5 text-primary" /> Caretaker Verification Queue
-              </h2>
-              <p className="mt-0.5 text-sm text-fg-muted">
-                Review applicant credentials and inspect uploaded Citizenship ID documents. Click any card for full details.
-              </p>
-            </div>
-
-            {/* Status Tabs */}
-            <div className="inline-flex self-start lg:self-auto rounded-lg border border-border bg-surface-subtle p-1 text-xs">
-              {(
-                [
-                  { id: 'ALL', label: `All (${applications.length})` },
-                  {
-                    id: 'PENDING',
-                    label: `Pending (${
-                      applications.filter((a) => a.verificationStatus === 'PENDING').length
-                    })`,
-                  },
-                  {
-                    id: 'APPROVED',
-                    label: `Approved (${
-                      applications.filter((a) => a.verificationStatus === 'APPROVED').length
-                    })`,
-                  },
-                  {
-                    id: 'REJECTED',
-                    label: `Rejected (${
-                      applications.filter((a) => a.verificationStatus === 'REJECTED').length
-                    })`,
-                  },
-                ] as { id: VerificationFilter; label: string }[]
-              ).map((tab) => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => setVerificationFilter(tab.id)}
-                  className={`rounded-md px-3 py-1.5 font-medium transition-all ${
-                    verificationFilter === tab.id
-                      ? 'bg-surface text-fg shadow-soft'
-                      : 'text-fg-muted hover:text-fg'
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Search & Dzongkhag Filter Bar */}
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <div className="relative flex-1">
-              <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-muted" />
-              <input
-                type="text"
-                value={appSearch}
-                onChange={(e) => setAppSearch(e.target.value)}
-                placeholder="Search applicants by name, email, phone, or qualification..."
-                className="w-full rounded-lg border border-border bg-surface-subtle py-2 pl-10 pr-8 text-sm text-fg placeholder:text-fg-muted focus:border-primary focus:bg-surface focus:outline-none"
-              />
-              {appSearch && (
                 <button
                   type="button"
-                  onClick={() => setAppSearch('')}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-fg-muted hover:text-fg"
-                  aria-label="Clear applicant search"
+                  disabled={avatarBusy}
+                  onClick={() => fileInputRef.current?.click()}
+                  className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-border bg-surface-subtle/70 px-2.5 py-1.5 text-[11px] font-medium text-fg hover:border-primary/40 hover:text-primary transition-colors disabled:opacity-50"
                 >
-                  <X className="h-4 w-4" />
+                  <Camera className="h-3.5 w-3.5 text-primary" />
+                  {avatarBusy ? 'Saving...' : user?.avatarUrl ? 'Update Photo' : 'Upload Photo'}
                 </button>
-              )}
-            </div>
 
-            <div className="flex items-center gap-2">
-              <SlidersHorizontal className="h-4 w-4 text-fg-muted shrink-0" />
-              <select
-                value={appDzongkhag}
-                onChange={(e) => setAppDzongkhag(e.target.value)}
-                aria-label="Filter applications by Dzongkhag"
-                className="rounded-lg border border-border bg-surface-subtle px-3 py-2 text-sm text-fg focus:border-primary focus:bg-surface focus:outline-none"
-              >
-                <option value="ALL">All Dzongkhags</option>
-                {applicationDzongkhags.map((dz) => (
-                  <option key={dz} value={dz}>
-                    {dz}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-        </div>
-
-        {/* Compact Application Cards Grid */}
-        <div className="p-6">
-          {paginatedApplications.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-border bg-surface-subtle/40 py-12 text-center space-y-2">
-              <p className="text-sm font-medium text-fg">No caretaker applications match your filters</p>
-              <p className="text-xs text-fg-muted">
-                Try switching the verification status tab or clearing your search query.
-              </p>
-            </div>
-          ) : (
-            <div className="grid gap-4 md:grid-cols-2">
-              {paginatedApplications.map((app) => {
-                const isPending = app.verificationStatus === 'PENDING';
-                const isApproved = app.verificationStatus === 'APPROVED';
-
-                return (
-                  <article
-                    key={app.id}
-                    onClick={() => setSelectedDrawerItem({ kind: 'APPLICATION', data: app })}
-                    className={`group cursor-pointer rounded-xl border bg-surface p-5 transition-all hover:border-primary/45 hover:shadow-md flex flex-col justify-between gap-4 ${
-                      isPending ? 'border-amber-400/50 bg-amber-500/[0.02]' : 'border-border'
-                    }`}
-                  >
-                    {/* Card Top: Avatar + Name + Contact + Status */}
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex items-center gap-3.5 min-w-0">
-                        {app.avatarUrl ? (
-                          <img
-                            src={app.avatarUrl}
-                            alt={app.fullName}
-                            className="h-11 w-11 shrink-0 rounded-full object-cover border border-border"
-                          />
-                        ) : (
-                          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary/12 font-serif text-sm font-semibold text-primary">
-                            {getInitials(app.fullName)}
-                          </div>
-                        )}
-
-                        <div className="min-w-0">
-                          <h3 className="font-serif text-base font-semibold text-fg truncate group-hover:text-primary transition-colors">
-                            {app.fullName}
-                          </h3>
-                          <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-fg-muted">
-                            <span className="inline-flex items-center gap-1 truncate">
-                              <Mail className="h-3 w-3 shrink-0 opacity-75" /> {app.email}
-                            </span>
-                            {app.phone && (
-                              <span className="inline-flex items-center gap-1">
-                                <Phone className="h-3 w-3 shrink-0 opacity-75" /> {app.phone}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      <Badge
-                        variant={
-                          isApproved
-                            ? 'verified'
-                            : app.verificationStatus === 'REJECTED'
-                            ? 'rejected'
-                            : 'pending'
-                        }
-                      >
-                        {app.verificationStatus}
-                      </Badge>
-                    </div>
-
-                    {/* Card Middle: Qualifications & Key Pills */}
-                    <div className="rounded-lg border border-border/70 bg-surface-subtle/60 p-3 space-y-2.5">
-                      <div className="flex items-start gap-2">
-                        <Award className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                        <p className="text-xs font-medium text-fg line-clamp-2 leading-relaxed">
-                          {app.qualifications || 'No formal certificate listed'}
-                        </p>
-                      </div>
-
-                      <div className="flex flex-wrap items-center gap-2 text-xs">
-                        <span className="inline-flex items-center gap-1 rounded-md border border-border bg-surface px-2 py-0.5 font-medium text-fg">
-                          <MapPin className="h-3 w-3 text-primary" /> {app.dzongkhag}
-                        </span>
-                        <span className="inline-flex items-center gap-1 rounded-md border border-border bg-surface px-2 py-0.5 font-medium text-fg">
-                          <Briefcase className="h-3 w-3 text-primary" /> {app.yearsExperience} yrs exp
-                        </span>
-                        <span className="inline-flex items-center gap-1 rounded-md border border-border bg-surface px-2 py-0.5 font-semibold text-primary">
-                          <Banknote className="h-3 w-3" /> {formatBtn(Number(app.monthlyRateBtn))}/mo
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Card Footer: Document & Decision Actions */}
-                    <div
-                      className="flex flex-wrap items-center justify-between gap-2 border-t border-border/80 pt-3"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <button
-                        type="button"
-                        disabled={loadingDocId === app.id}
-                        onClick={() => handleViewDocument(app)}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-xs font-medium text-fg shadow-2xs transition-colors hover:border-primary/50 hover:text-primary disabled:opacity-50"
-                      >
-                        <Eye className="h-3.5 w-3.5 text-primary" />
-                        {loadingDocId === app.id ? 'Loading CID...' : 'View Documents'}
-                      </button>
-
-                      <div className="inline-flex items-center gap-2">
-                        {app.verificationStatus !== 'APPROVED' && (
-                          <button
-                            type="button"
-                            onClick={() => handleVerify(app.id, 'APPROVED')}
-                            className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-600/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-700 transition-colors hover:bg-emerald-500/20"
-                          >
-                            <CheckCircle2 className="h-3.5 w-3.5" /> Approve
-                          </button>
-                        )}
-                        {app.verificationStatus !== 'REJECTED' && (
-                          <button
-                            type="button"
-                            onClick={() => handleVerify(app.id, 'REJECTED')}
-                            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-xs font-medium text-fg-muted transition-colors hover:border-red-500/30 hover:bg-red-500/10 hover:text-red-600"
-                          >
-                            <XCircle className="h-3.5 w-3.5" /> Reject
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        {/* Queue Footer + Pagination */}
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-surface-subtle/40 px-6 py-3.5 text-xs text-fg-muted">
-          <div className="flex items-center gap-3">
-            <span>
-              Showing <strong className="text-fg">{paginatedApplications.length}</strong> of{' '}
-              <strong className="text-fg">{filteredApplications.length}</strong> applicants
-            </span>
-            {(verificationFilter !== 'ALL' || appDzongkhag !== 'ALL' || appSearch) && (
-              <button
-                type="button"
-                onClick={() => {
-                  setVerificationFilter('ALL');
-                  setAppDzongkhag('ALL');
-                  setAppSearch('');
-                }}
-                className="font-medium text-primary hover:underline"
-              >
-                Reset filters
-              </button>
-            )}
-          </div>
-
-          {totalAppPages > 1 && (
-            <div className="inline-flex items-center gap-1.5">
-              <button
-                type="button"
-                disabled={appPage <= 1}
-                onClick={() => setAppPage((p) => Math.max(1, p - 1))}
-                className="inline-flex items-center gap-1 rounded-md border border-border bg-surface px-2.5 py-1 text-fg disabled:opacity-40 hover:border-primary/40"
-              >
-                <ChevronLeft className="h-3.5 w-3.5" /> Prev
-              </button>
-              <span className="px-2 font-medium text-fg">
-                Page {appPage} of {totalAppPages}
-              </span>
-              <button
-                type="button"
-                disabled={appPage >= totalAppPages}
-                onClick={() => setAppPage((p) => Math.min(totalAppPages, p + 1))}
-                className="inline-flex items-center gap-1 rounded-md border border-border bg-surface px-2.5 py-1 text-fg disabled:opacity-40 hover:border-primary/40"
-              >
-                Next <ChevronRight className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          )}
-        </div>
-      </section>
-
-      {/* ===================================================================== */}
-      {/* 2. PLATFORM USERS DIRECTORY (Clean Data Table + 3-Dot Action Menu)    */}
-      {/* ===================================================================== */}
-      <section
-        ref={menuContainerRef}
-        className="rounded-2xl border border-border bg-surface shadow-soft overflow-visible"
-      >
-        {/* Header + Search + Role & Status Filters */}
-        <div className="border-b border-border px-6 py-5 space-y-4">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h2 className="font-serif text-xl font-semibold text-fg flex items-center gap-2">
-                <Users className="h-5 w-5 text-primary" /> Platform Users
-              </h2>
-              <p className="mt-0.5 text-sm text-fg-muted">
-                Manage parents, caretakers, and administrators. Click any row or the action menu to inspect details.
-              </p>
-            </div>
-
-            {/* Account Status Pills */}
-            <div className="inline-flex self-start sm:self-auto rounded-lg border border-border bg-surface-subtle p-1 text-xs">
-              {(
-                [
-                  { id: 'ALL', label: `All (${users.length})` },
-                  {
-                    id: 'ACTIVE',
-                    label: `Active (${users.filter((u) => u.isActive).length})`,
-                  },
-                  {
-                    id: 'SUSPENDED',
-                    label: `Suspended (${suspendedCount})`,
-                  },
-                ] as { id: UserStatusFilter; label: string }[]
-              ).map((st) => (
-                <button
-                  key={st.id}
-                  type="button"
-                  onClick={() => setUserStatusFilter(st.id)}
-                  className={`rounded-md px-3 py-1.5 font-medium transition-all ${
-                    userStatusFilter === st.id
-                      ? 'bg-surface text-fg shadow-soft'
-                      : 'text-fg-muted hover:text-fg'
-                  }`}
-                >
-                  {st.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Search & Role Dropdown */}
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <div className="relative flex-1">
-              <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-muted" />
-              <input
-                type="text"
-                value={userSearch}
-                onChange={(e) => setUserSearch(e.target.value)}
-                placeholder="Search by user name, email address, Dzongkhag, or ID..."
-                className="w-full rounded-lg border border-border bg-surface-subtle py-2 pl-10 pr-8 text-sm text-fg placeholder:text-fg-muted focus:border-primary focus:bg-surface focus:outline-none"
-              />
-              {userSearch && (
-                <button
-                  type="button"
-                  onClick={() => setUserSearch('')}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-fg-muted hover:text-fg"
-                  aria-label="Clear user search"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              )}
-            </div>
-
-            <div className="flex items-center gap-2">
-              <SlidersHorizontal className="h-4 w-4 text-fg-muted shrink-0" />
-              <select
-                value={userRoleFilter}
-                onChange={(e) => setUserRoleFilter(e.target.value as UserRoleFilter)}
-                aria-label="Filter users by role"
-                className="rounded-lg border border-border bg-surface-subtle px-3 py-2 text-sm text-fg focus:border-primary focus:bg-surface focus:outline-none"
-              >
-                <option value="ALL">All Roles</option>
-                <option value="PARENT">Parents</option>
-                <option value="CARETAKER">Caretakers</option>
-                <option value="ADMIN">Administrators</option>
-              </select>
-            </div>
-          </div>
-        </div>
-
-        {/* Data Table */}
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-border bg-surface-subtle/70 text-xs font-semibold uppercase tracking-wider text-fg-muted">
-              <tr>
-                <th className="py-3.5 pl-6 pr-4">
+                {user?.avatarUrl && (
                   <button
                     type="button"
-                    onClick={() => setUserSortAsc((prev) => !prev)}
-                    className="inline-flex items-center gap-1.5 hover:text-fg transition-colors"
+                    disabled={avatarBusy}
+                    onClick={handleAvatarRemove}
+                    title="Delete profile picture"
+                    className="inline-flex items-center justify-center gap-1 rounded-xl border border-border bg-surface-subtle/70 px-2.5 py-1.5 text-[11px] font-medium text-fg-muted hover:border-red-500/40 hover:text-red-600 transition-colors disabled:opacity-50"
                   >
-                    User <ArrowUpDown className="h-3.5 w-3.5" />
+                    <Trash2 className="h-3.5 w-3.5" />
+                    <span>Delete</span>
                   </button>
-                </th>
-                <th className="py-3.5 px-4">Role</th>
-                <th className="py-3.5 px-4">Dzongkhag</th>
-                <th className="py-3.5 px-4">Account Status</th>
-                <th className="py-3.5 pl-4 pr-6 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border/80">
-              {paginatedUsers.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="py-12 text-center text-sm text-fg-muted">
-                    No users match your search or filter criteria.
-                  </td>
-                </tr>
-              ) : (
-                paginatedUsers.map((u) => {
-                  const linkedApp = u.role === 'CARETAKER' ? findLinkedApplication(u) : null;
-                  const menuOpen = openMenuUserId === u.id;
-
-                  return (
-                    <tr
-                      key={u.id}
-                      onClick={() => setSelectedDrawerItem({ kind: 'USER', data: u })}
-                      className="group cursor-pointer transition-colors hover:bg-surface-subtle/60"
-                    >
-                      <td className="py-4 pl-6 pr-4">
-                        <div className="flex items-center gap-3.5">
-                          {u.avatarUrl ? (
-                            <img
-                              src={u.avatarUrl}
-                              alt={u.fullName}
-                              className="h-10 w-10 shrink-0 rounded-full object-cover border border-border"
-                            />
-                          ) : (
-                            <div
-                              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full font-serif text-xs font-semibold ${
-                                u.role === 'CARETAKER'
-                                  ? 'bg-amber-500/15 text-amber-700'
-                                  : u.role === 'ADMIN'
-                                  ? 'bg-slate-500/15 text-slate-700'
-                                  : 'bg-primary/12 text-primary'
-                              }`}
-                            >
-                              {getInitials(u.fullName)}
-                            </div>
-                          )}
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                              <p className="font-semibold text-fg truncate group-hover:text-primary transition-colors">
-                                {u.fullName}
-                              </p>
-                              <span className="rounded bg-surface-subtle px-1.5 py-0.5 font-mono text-[10px] text-fg-muted">
-                                #{String(u.id).slice(0, 6)}
-                              </span>
-                            </div>
-                            <p className="mt-0.5 text-xs text-fg-muted truncate">{u.email}</p>
-                          </div>
-                        </div>
-                      </td>
-
-                      <td className="py-4 px-4 whitespace-nowrap">
-                        <span
-                          className={`inline-flex items-center rounded-md px-2.5 py-1 text-xs font-semibold ${
-                            u.role === 'CARETAKER'
-                              ? 'bg-amber-500/10 text-amber-700 border border-amber-500/20'
-                              : u.role === 'ADMIN'
-                              ? 'bg-slate-500/10 text-slate-700 border border-slate-500/20'
-                              : 'bg-primary/10 text-primary border border-primary/20'
-                          }`}
-                        >
-                          {u.role === 'CARETAKER'
-                            ? 'Caretaker'
-                            : u.role === 'ADMIN'
-                            ? 'Admin'
-                            : 'Parent'}
-                        </span>
-                      </td>
-
-                      <td className="py-4 px-4 whitespace-nowrap">
-                        {u.dzongkhag ? (
-                          <span className="inline-flex items-center gap-1.5 text-sm text-fg">
-                            <MapPin className="h-3.5 w-3.5 text-primary/80" /> {u.dzongkhag}
-                          </span>
-                        ) : (
-                          <span className="text-xs text-fg-muted">Not specified</span>
-                        )}
-                      </td>
-
-                      <td className="py-4 px-4 whitespace-nowrap">
-                        <span
-                          className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${
-                            u.isActive
-                              ? 'bg-emerald-500/10 text-emerald-700'
-                              : 'bg-red-500/10 text-red-700'
-                          }`}
-                        >
-                          <span
-                            className={`h-1.5 w-1.5 rounded-full ${
-                              u.isActive ? 'bg-emerald-500' : 'bg-red-500'
-                            }`}
-                          />
-                          {u.isActive ? 'Active' : 'Suspended'}
-                        </span>
-                      </td>
-
-                      {/* Three-Dot Action Menu */}
-                      <td
-                        className="relative py-4 pl-4 pr-6 text-right whitespace-nowrap"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => setOpenMenuUserId(menuOpen ? null : u.id)}
-                          aria-label={`Actions for ${u.fullName}`}
-                          aria-expanded={menuOpen}
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-surface text-fg-muted transition-colors hover:border-primary/40 hover:text-fg"
-                        >
-                          <MoreVertical className="h-4 w-4" />
-                        </button>
-
-                        {menuOpen && (
-                          <div
-                            role="menu"
-                            className="absolute right-6 top-13 z-30 w-48 overflow-hidden rounded-xl border border-border bg-surface py-1 text-left shadow-elevated"
-                          >
-                            <button
-                              type="button"
-                              role="menuitem"
-                              onClick={() => {
-                                setOpenMenuUserId(null);
-                                setSelectedDrawerItem({ kind: 'USER', data: u });
-                              }}
-                              className="flex w-full items-center gap-2.5 px-3.5 py-2 text-xs font-medium text-fg hover:bg-surface-subtle"
-                            >
-                              <Eye className="h-3.5 w-3.5 text-primary" /> View Profile
-                            </button>
-
-                            {linkedApp && (
-                              <button
-                                type="button"
-                                role="menuitem"
-                                onClick={() => {
-                                  setOpenMenuUserId(null);
-                                  handleViewDocument(linkedApp);
-                                }}
-                                className="flex w-full items-center gap-2.5 px-3.5 py-2 text-xs font-medium text-fg hover:bg-surface-subtle"
-                              >
-                                <FileText className="h-3.5 w-3.5 text-primary" /> View CID Document
-                              </button>
-                            )}
-
-                            {u.role !== 'ADMIN' && (
-                              <>
-                                <div className="my-1 border-t border-border" />
-                                {u.isActive ? (
-                                  <button
-                                    type="button"
-                                    role="menuitem"
-                                    onClick={() => handleToggleUser(u.id)}
-                                    className="flex w-full items-center gap-2.5 px-3.5 py-2 text-xs font-semibold text-red-600 hover:bg-red-500/10"
-                                  >
-                                    <UserX className="h-3.5 w-3.5" /> Suspend Account
-                                  </button>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    role="menuitem"
-                                    onClick={() => handleToggleUser(u.id)}
-                                    className="flex w-full items-center gap-2.5 px-3.5 py-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-500/10"
-                                  >
-                                    <UserCheck className="h-3.5 w-3.5" /> Activate Account
-                                  </button>
-                                )}
-                              </>
-                            )}
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Users Footer + Pagination */}
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-surface-subtle/40 px-6 py-3.5 text-xs text-fg-muted rounded-b-2xl">
-          <div className="flex items-center gap-3">
-            <span>
-              Showing <strong className="text-fg">{paginatedUsers.length}</strong> of{' '}
-              <strong className="text-fg">{filteredUsers.length}</strong> accounts
-            </span>
-            {(userSearch || userRoleFilter !== 'ALL' || userStatusFilter !== 'ALL') && (
-              <button
-                type="button"
-                onClick={() => {
-                  setUserSearch('');
-                  setUserRoleFilter('ALL');
-                  setUserStatusFilter('ALL');
-                }}
-                className="font-medium text-primary hover:underline"
-              >
-                Clear all filters
-              </button>
-            )}
-          </div>
-
-          {totalUserPages > 1 && (
-            <div className="inline-flex items-center gap-1.5">
-              <button
-                type="button"
-                disabled={userPage <= 1}
-                onClick={() => setUserPage((p) => Math.max(1, p - 1))}
-                className="inline-flex items-center gap-1 rounded-md border border-border bg-surface px-2.5 py-1 text-fg disabled:opacity-40 hover:border-primary/40"
-              >
-                <ChevronLeft className="h-3.5 w-3.5" /> Prev
-              </button>
-              <span className="px-2 font-medium text-fg">
-                Page {userPage} of {totalUserPages}
-              </span>
-              <button
-                type="button"
-                disabled={userPage >= totalUserPages}
-                onClick={() => setUserPage((p) => Math.min(totalUserPages, p + 1))}
-                className="inline-flex items-center gap-1 rounded-md border border-border bg-surface px-2.5 py-1 text-fg disabled:opacity-40 hover:border-primary/40"
-              >
-                Next <ChevronRight className="h-3.5 w-3.5" />
-              </button>
+                )}
+              </div>
             </div>
-          )}
-        </div>
-      </section>
 
-      {/* ===================================================================== */}
-      {/* 3. RIGHT-SIDE PROFILE & APPLICATION INSPECTION DRAWER                 */}
-      {/* ===================================================================== */}
-      {selectedDrawerItem && (() => {
-        const isApp = selectedDrawerItem.kind === 'APPLICATION';
-        const record = selectedDrawerItem.data;
-        const linkedApp = isApp
-          ? record
-          : record.role === 'CARETAKER'
-          ? findLinkedApplication(record)
-          : null;
-        const linkedUser = !isApp
-          ? record
-          : users.find(
-              (u) => u.id === record.userId || u.email?.toLowerCase() === record.email?.toLowerCase()
-            ) || null;
-
-        const isActive = linkedUser ? Boolean(linkedUser.isActive) : true;
-        const createdAt = record.createdAt || record.created_at || linkedUser?.createdAt;
-
-        return (
-          <div
-            className="fixed inset-0 z-40 flex justify-end bg-black/45 backdrop-blur-[1px]"
-            onClick={() => setSelectedDrawerItem(null)}
-          >
-            <aside
-              aria-label="Profile details drawer"
-              className="relative flex h-full w-full max-w-lg flex-col border-l border-border bg-surface shadow-elevated"
-              onClick={(e) => e.stopPropagation()}
+            {/* Sidebar Navigation */}
+            <nav
+              aria-label="Admin dashboard sections"
+              className="flex gap-1.5 overflow-x-auto pb-1 lg:flex-col lg:gap-1 lg:overflow-visible lg:pb-0"
             >
-              {/* Drawer Header */}
-              <div className="flex items-center justify-between border-b border-border px-6 py-4">
-                <div>
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-primary">
-                    {isApp ? 'Caretaker Application' : 'Account Profile'}
-                  </span>
-                  <h3 className="font-serif text-xl font-semibold text-fg">{record.fullName}</h3>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setSelectedDrawerItem(null)}
-                  className="rounded-lg p-1.5 text-fg-muted hover:bg-surface-subtle hover:text-fg"
-                  aria-label="Close drawer"
-                >
-                  <X className="h-5 w-5" />
-                </button>
-              </div>
-
-              {/* Drawer Scrollable Body */}
-              <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
-                {/* Identity Summary Banner */}
-                <div className="flex items-center gap-4 rounded-xl border border-border bg-surface-subtle/60 p-4">
-                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-primary/15 font-serif text-lg font-semibold text-primary">
-                    {getInitials(record.fullName)}
-                  </div>
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="rounded-md border border-primary/20 bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">
-                        {isApp ? 'CARETAKER' : record.role}
-                      </span>
-                      {linkedApp && (
-                        <Badge
-                          variant={
-                            linkedApp.verificationStatus === 'APPROVED'
-                              ? 'verified'
-                              : linkedApp.verificationStatus === 'REJECTED'
-                              ? 'rejected'
-                              : 'pending'
-                          }
-                        >
-                          {linkedApp.verificationStatus}
-                        </Badge>
-                      )}
-                      {linkedUser && (
-                        <span
-                          className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                            isActive
-                              ? 'bg-emerald-500/10 text-emerald-700'
-                              : 'bg-red-500/10 text-red-700'
-                          }`}
-                        >
-                          {isActive ? 'Active' : 'Suspended'}
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs font-mono text-fg-muted">ID: {record.id}</p>
-                  </div>
-                </div>
-
-                {/* Personal & Contact Information */}
-                <div className="space-y-3">
-                  <h4 className="text-xs font-semibold uppercase tracking-wider text-fg-muted">
-                    Personal & Contact Details
-                  </h4>
-                  <div className="grid gap-3 rounded-xl border border-border bg-surface p-4 text-sm sm:grid-cols-2">
-                    <div>
-                      <span className="text-xs text-fg-muted block">Email Address</span>
-                      <span className="font-medium text-fg break-all">{record.email}</span>
-                    </div>
-                    <div>
-                      <span className="text-xs text-fg-muted block">Phone Number</span>
-                      <span className="font-medium text-fg">
-                        {record.phone || linkedApp?.phone || 'Not provided'}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-xs text-fg-muted block">Dzongkhag</span>
-                      <span className="font-medium text-fg inline-flex items-center gap-1">
-                        <MapPin className="h-3.5 w-3.5 text-primary" />{' '}
-                        {record.dzongkhag || 'Not specified'}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-xs text-fg-muted block">Account Activity</span>
-                      <span className="font-medium text-fg inline-flex items-center gap-1">
-                        <Clock className="h-3.5 w-3.5 text-primary" />
-                        {createdAt ? `Joined ${formatDisplayDate(createdAt)}` : 'Active member'}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Caretaker Qualifications & Verification Section */}
-                {linkedApp && (
-                  <div className="space-y-3">
-                    <h4 className="text-xs font-semibold uppercase tracking-wider text-fg-muted">
-                      Qualifications & Caretaker Credentials
-                    </h4>
-                    <div className="rounded-xl border border-border bg-surface p-4 space-y-4 text-sm">
-                      <div>
-                        <span className="text-xs text-fg-muted block">Certificates & Training</span>
-                        <p className="mt-1 font-medium text-fg leading-relaxed">
-                          {linkedApp.qualifications || 'None listed'}
-                        </p>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-3 border-t border-border pt-3">
-                        <div>
-                          <span className="text-xs text-fg-muted block">Experience</span>
-                          <span className="font-semibold text-fg">
-                            {linkedApp.yearsExperience} years
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-xs text-fg-muted block">Expected Monthly Rate</span>
-                          <span className="font-semibold text-primary">
-                            {formatBtn(Number(linkedApp.monthlyRateBtn))}/mo
-                          </span>
-                        </div>
-                      </div>
-
-                      {linkedApp.bio && (
-                        <div className="border-t border-border pt-3">
-                          <span className="text-xs text-fg-muted block">Professional Bio</span>
-                          <p className="mt-1 text-xs text-fg-muted leading-relaxed">
-                            {linkedApp.bio}
-                          </p>
-                        </div>
-                      )}
-
-                      {linkedApp.rejectionReason && linkedApp.verificationStatus === 'REJECTED' && (
-                        <div className="rounded-lg border border-red-500/25 bg-red-500/10 p-3 text-xs text-red-700">
-                          <strong>Rejection Note:</strong> {linkedApp.rejectionReason}
-                        </div>
-                      )}
-
-                      <div className="border-t border-border pt-3 flex items-center justify-between">
-                        <div>
-                          <span className="text-xs font-medium text-fg block">
-                            Citizenship ID (CID) Document
-                          </span>
-                          <span className="text-[11px] text-fg-muted">
-                            {linkedApp.idDocumentPath
-                              ? 'Uploaded and ready for audit'
-                              : 'No file path recorded'}
-                          </span>
-                        </div>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={loadingDocId === linkedApp.id}
-                          onClick={() => handleViewDocument(linkedApp)}
-                        >
-                          <Eye className="h-3.5 w-3.5 text-primary" />
-                          {loadingDocId === linkedApp.id ? 'Loading...' : 'View CID'}
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Drawer Sticky Action Footer */}
-              <div className="border-t border-border bg-surface-subtle/60 px-6 py-4 flex flex-wrap items-center justify-between gap-2">
-                {linkedApp ? (
-                  <div className="flex flex-wrap items-center gap-2">
-                    {linkedApp.verificationStatus !== 'APPROVED' && (
-                      <Button
-                        size="sm"
-                        onClick={() => handleVerify(linkedApp.id, 'APPROVED')}
-                      >
-                        <CheckCircle2 className="h-4 w-4" /> Approve Caretaker
-                      </Button>
-                    )}
-                    {linkedApp.verificationStatus !== 'REJECTED' && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleVerify(linkedApp.id, 'REJECTED')}
-                      >
-                        <XCircle className="h-4 w-4 text-red-500" /> Reject
-                      </Button>
-                    )}
-                  </div>
-                ) : (
-                  <span className="text-xs text-fg-muted">
-                    {record.role === 'PARENT'
-                      ? 'Verified Parent Account'
-                      : 'System Administrator'}
-                  </span>
-                )}
-
-                {linkedUser && linkedUser.role !== 'ADMIN' && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => handleToggleUser(linkedUser.id)}
+              {navItems.map((item) => {
+                const isActive = activeSection === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setActiveSection(item.id)}
+                    className={`flex shrink-0 items-center justify-between gap-2.5 rounded-xl px-3.5 py-2.5 text-sm font-medium transition-all ${
+                      isActive
+                        ? 'bg-primary/12 text-primary font-semibold'
+                        : 'text-fg-muted hover:bg-surface-subtle hover:text-fg'
+                    }`}
                   >
-                    {linkedUser.isActive ? (
-                      <>
-                        <UserX className="h-4 w-4 text-red-500" /> Suspend Account
-                      </>
-                    ) : (
-                      <>
-                        <UserCheck className="h-4 w-4 text-emerald-600" /> Activate Account
-                      </>
+                    <span className="flex items-center gap-2.5">
+                      {item.icon}
+                      {item.label}
+                    </span>
+                    {item.badge !== undefined && (
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                          isActive
+                            ? 'bg-primary text-white'
+                            : 'bg-surface-subtle text-fg-muted'
+                        }`}
+                      >
+                        {item.badge}
+                      </span>
                     )}
-                  </Button>
-                )}
-              </div>
-            </aside>
+                  </button>
+                );
+              })}
+            </nav>
           </div>
-        );
-      })()}
 
-      {/* Citizenship ID Document Preview Modal */}
-      {docPreview && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs"
-          onClick={closeDocPreview}
-        >
-          <div
-            className="w-full max-w-2xl overflow-hidden rounded-2xl border border-border bg-surface shadow-elevated"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between border-b border-border px-5 py-3.5">
-              <div className="flex items-center gap-2">
-                <FileText className="h-4 w-4 text-primary" />
-                <h3 className="font-serif text-lg font-semibold text-fg">
-                  Citizenship ID — {docPreview.name}
-                </h3>
+          {/* Bottom Dark Audit Card & Logout Trigger */}
+          <div className="hidden lg:block space-y-3 pt-4">
+            <div className="rounded-2xl bg-[#242926] p-4 text-white space-y-2.5 shadow-soft">
+              <div className="flex items-center justify-between text-xs font-semibold">
+                <span className="flex items-center gap-1.5 text-emerald-300">
+                  <ShieldCheck className="h-4 w-4" /> CID Audit Queue
+                </span>
+                <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-emerald-300">
+                  {pendingCount} Pending
+                </span>
               </div>
+              <p className="text-[11px] text-stone-300 leading-relaxed">
+                Inspect Citizenship ID scans before approving caretaker profiles for public listing.
+              </p>
               <button
                 type="button"
-                onClick={closeDocPreview}
-                className="rounded-lg p-1.5 text-fg-muted hover:bg-surface-subtle hover:text-fg"
-                aria-label="Close document preview"
+                onClick={() => {
+                  setActiveSection('VERIFICATIONS');
+                  setStatusFilter('PENDING');
+                }}
+                className="block w-full rounded-xl bg-primary py-2 text-center text-xs font-semibold text-white transition-opacity hover:opacity-95"
               >
-                <X className="h-5 w-5" />
+                Review Pending CIDs
               </button>
             </div>
 
-            <div className="max-h-[75vh] overflow-auto bg-surface-subtle p-4 flex items-center justify-center">
-              {docPreview.type.includes('pdf') ? (
-                <iframe
-                  src={docPreview.url}
-                  title={`CID Document for ${docPreview.name}`}
-                  className="h-[65vh] w-full rounded-lg border border-border"
-                />
-              ) : (
-                <img
-                  src={docPreview.url}
-                  alt={`Citizenship ID for ${docPreview.name}`}
-                  className="max-h-[65vh] w-auto rounded-lg object-contain shadow-soft"
-                />
-              )}
+            <div className="border-t border-border pt-3">
+              <button
+                type="button"
+                onClick={() => setLogoutModalOpen(true)}
+                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-medium text-fg-muted hover:bg-red-500/10 hover:text-red-600 transition-colors"
+              >
+                <LogOut className="h-3.5 w-3.5" /> Log out
+              </button>
             </div>
           </div>
+        </aside>
+
+        {/* ================================================================= */}
+        {/* MAIN WORKSPACE CANVAS                                             */}
+        {/* ================================================================= */}
+        <main className="flex-1 min-w-0 px-4 py-6 sm:px-6 lg:px-8 lg:py-7">
+          <div className="mx-auto max-w-[1280px] space-y-6">
+            {/* Top Bar */}
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h1 className="font-serif text-2xl sm:text-3xl font-semibold text-fg">
+                  Platform Administration
+                </h1>
+                <p className="text-xs text-fg-muted mt-0.5">
+                  Audit caretaker Citizenship IDs, oversee 6-month contracts, and monitor platform growth.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2.5">
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-muted" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search applicant, Dzongkhag..."
+                    className="w-52 sm:w-64 rounded-full border border-border bg-surface py-2 pl-9 pr-4 text-xs text-fg placeholder:text-fg-muted shadow-2xs focus:border-primary focus:outline-none"
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={loadAdminData}
+                  disabled={loadingData}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-3.5 py-2 text-xs font-medium text-fg hover:border-primary/40 hover:text-primary transition-colors"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${loadingData ? 'animate-spin' : ''}`} />
+                  Refresh
+                </button>
+
+                <span className="inline-flex items-center gap-2 rounded-full border border-border bg-surface px-3.5 py-2 text-xs font-medium text-fg-muted">
+                  <Calendar className="h-3.5 w-3.5 text-primary" />
+                  {new Date().toLocaleDateString('en-US', {
+                    day: 'numeric',
+                    month: 'short',
+                    year: 'numeric',
+                  })}
+                </span>
+              </div>
+            </div>
+
+            {loadError && (
+              <div className="rounded-2xl border border-red-500/30 bg-red-500/10 px-5 py-3 text-xs font-medium text-red-700 dark:text-red-300">
+                {loadError}
+              </div>
+            )}
+
+            {bannerMessage && (
+              <div className="rounded-2xl border border-primary/30 bg-primary/10 px-5 py-3 text-xs font-medium text-fg">
+                {bannerMessage}
+              </div>
+            )}
+
+            {/* =============================================================== */}
+            {/* 4-CARD KPI STRIP (First Card Dark #242926)                      */}
+            {/* =============================================================== */}
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-2xl bg-[#242926] p-5 text-white shadow-soft flex flex-col justify-between space-y-3">
+                <p className="text-xs font-medium text-stone-300">Verified Caretakers</p>
+                <p className="font-serif text-3xl font-semibold tracking-tight">
+                  {approvedCount}
+                  <span className="text-base font-normal text-stone-400">
+                    /{caretakers.length}
+                  </span>
+                </p>
+                <p className="text-[11px] text-emerald-300 flex items-center gap-1">
+                  <ShieldCheck className="h-3.5 w-3.5" /> CID & qualification approved
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-border bg-surface p-5 shadow-soft flex flex-col justify-between space-y-3">
+                <p className="text-xs font-medium text-fg-muted">Registered Parents</p>
+                <p className="font-serif text-3xl font-semibold text-fg">
+                  {stats.totalParents}
+                </p>
+                <p className="text-[11px] text-fg-muted flex items-center gap-1">
+                  <Users className="h-3.5 w-3.5 text-primary" /> Active family households
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-border bg-surface p-5 shadow-soft flex flex-col justify-between space-y-3">
+                <p className="text-xs font-medium text-fg-muted">Pending Verifications</p>
+                <p className="font-serif text-3xl font-semibold text-fg">
+                  {pendingCount}
+                </p>
+                <p className="text-[11px] text-amber-700 dark:text-amber-300 flex items-center gap-1 font-medium">
+                  <Clock className="h-3.5 w-3.5" /> Needs CID inspection
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-border bg-surface p-5 shadow-soft flex flex-col justify-between space-y-3">
+                <p className="text-xs font-medium text-fg-muted">Active 6+ Mo Contracts</p>
+                <p className="font-serif text-3xl font-semibold text-fg">
+                  {stats.activeContracts}
+                </p>
+                <p className="text-[11px] text-primary flex items-center gap-1 font-medium">
+                  <Sparkles className="h-3.5 w-3.5" /> Structured placements
+                </p>
+              </div>
+            </div>
+
+            {/* =============================================================== */}
+            {/* ANALYTICS GRAPH SECTION (Visible on OVERVIEW & ANALYTICS)       */}
+            {/* =============================================================== */}
+            {(activeSection === 'OVERVIEW' || activeSection === 'ANALYTICS') && (
+              <div className="grid gap-6 lg:grid-cols-12">
+                {/* Left 7 Cols: Caretakers by Dzongkhag Pill-Bar Chart */}
+                <div className="lg:col-span-7 rounded-2xl border border-border bg-surface p-6 shadow-soft flex flex-col justify-between space-y-6">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <h2 className="font-serif text-lg font-semibold text-fg">
+                        Caretaker Supply by Dzongkhag
+                      </h2>
+                      <p className="text-xs text-fg-muted mt-0.5">
+                        Regional distribution of registered childcare providers across Bhutan
+                      </p>
+                    </div>
+                    <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+                      <MapPin className="h-3.5 w-3.5" /> {dzongkhagChartData.length} Regions
+                    </span>
+                  </div>
+
+                  {dzongkhagChartData.length === 0 ? (
+                    <p className="text-xs text-fg-muted py-8 text-center">
+                      No caretaker regional data available yet.
+                    </p>
+                  ) : (
+                    <div className="grid grid-cols-6 items-end gap-3 pt-4 h-44">
+                      {dzongkhagChartData.map((bar, idx) => {
+                        const isTop = idx === 0;
+                        return (
+                          <div
+                            key={bar.name}
+                            className="flex h-full flex-col items-center justify-end gap-2"
+                          >
+                            <span className="text-[11px] font-semibold text-fg">
+                              {bar.count}
+                            </span>
+                            <div className="flex w-full flex-1 items-end justify-center">
+                              <div
+                                style={{ height: `${bar.pct}%` }}
+                                className={`w-full max-w-[38px] rounded-full transition-all ${
+                                  isTop ? 'bg-[#242926]' : 'bg-primary/75'
+                                }`}
+                              />
+                            </div>
+                            <span
+                              title={bar.name}
+                              className="w-full truncate text-center text-[11px] font-medium text-fg-muted"
+                            >
+                              {bar.name.split(' ')[0]}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Right 5 Cols: Verification & Platform Health Breakdown */}
+                <div className="lg:col-span-5 rounded-2xl border border-border bg-surface p-6 shadow-soft flex flex-col justify-between space-y-5">
+                  <div>
+                    <h2 className="font-serif text-lg font-semibold text-fg">
+                      CID Screening Breakdown
+                    </h2>
+                    <p className="text-xs text-fg-muted mt-0.5">
+                      Applicant verification status across {caretakers.length} total caretakers
+                    </p>
+                  </div>
+
+                  <div className="space-y-4">
+                    {[
+                      {
+                        label: 'Approved & Live',
+                        count: approvedCount,
+                        total: Math.max(1, caretakers.length),
+                        barColor: 'bg-primary',
+                      },
+                      {
+                        label: 'Pending CID Review',
+                        count: pendingCount,
+                        total: Math.max(1, caretakers.length),
+                        barColor: 'bg-amber-500',
+                      },
+                      {
+                        label: 'Rejected Applications',
+                        count: rejectedCount,
+                        total: Math.max(1, caretakers.length),
+                        barColor: 'bg-red-500/80',
+                      },
+                    ].map((item) => {
+                      const pct = Math.round((item.count / item.total) * 100);
+                      return (
+                        <div key={item.label} className="space-y-1.5">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="font-medium text-fg">{item.label}</span>
+                            <span className="font-semibold text-fg-muted">
+                              {item.count} ({pct}%)
+                            </span>
+                          </div>
+                          <div className="h-2.5 w-full overflow-hidden rounded-full bg-surface-subtle">
+                            <div
+                              style={{ width: `${pct}%` }}
+                              className={`h-full rounded-full ${item.barColor} transition-all`}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="rounded-xl bg-surface-subtle/80 p-3.5 text-xs flex items-center justify-between">
+                    <span className="text-fg-muted">Parent-to-Caretaker Ratio</span>
+                    <span className="font-semibold text-fg">
+                      {stats.totalParents} Families : {approvedCount} Verified Nannies
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* =============================================================== */}
+            {/* CARETAKER VERIFICATION QUEUE TABLE (Clean, Zero Overlap)        */}
+            {/* =============================================================== */}
+            {(activeSection === 'OVERVIEW' || activeSection === 'VERIFICATIONS') && (
+              <div className="rounded-2xl border border-border bg-surface shadow-soft overflow-hidden">
+                <div className="flex flex-col gap-3 border-b border-border p-5 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h2 className="font-serif text-xl font-semibold text-fg">
+                      Caretaker Verification Queue
+                    </h2>
+                    <p className="text-xs text-fg-muted mt-0.5">
+                      Inspect Citizenship ID documents and approve or decline caretaker listings.
+                    </p>
+                  </div>
+
+                  {/* Status Filter Pills */}
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {(
+                      [
+                        { id: 'ALL', label: `All (${caretakers.length})` },
+                        { id: 'PENDING', label: `Pending (${pendingCount})` },
+                        { id: 'APPROVED', label: `Approved (${approvedCount})` },
+                        { id: 'REJECTED', label: `Rejected (${rejectedCount})` },
+                      ] as { id: VerificationFilter; label: string }[]
+                    ).map((pill) => {
+                      const active = statusFilter === pill.id;
+                      return (
+                        <button
+                          key={pill.id}
+                          type="button"
+                          onClick={() => setStatusFilter(pill.id)}
+                          className={`rounded-full px-3.5 py-1.5 text-xs font-medium transition-all ${
+                            active
+                              ? 'bg-[#242926] text-white'
+                              : 'border border-border bg-surface-subtle/60 text-fg-muted hover:text-fg'
+                          }`}
+                        >
+                          {pill.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Responsive Horizontal Scroll Wrapper Prevents Any Overlap */}
+                <div className="w-full overflow-x-auto">
+                  <table className="w-full min-w-[960px] border-collapse text-left">
+                    <thead>
+                      <tr className="border-b border-border bg-surface-subtle/60 text-[11px] font-semibold uppercase tracking-wider text-fg-muted">
+                        <th className="py-3.5 pl-6 pr-4">Applicant</th>
+                        <th className="px-4 py-3.5 whitespace-nowrap">Dzongkhag</th>
+                        <th className="px-4 py-3.5">Qualifications & Rate</th>
+                        <th className="px-4 py-3.5 whitespace-nowrap">CID Document</th>
+                        <th className="px-4 py-3.5 whitespace-nowrap">Status</th>
+                        <th className="py-3.5 pl-4 pr-6 text-right whitespace-nowrap">
+                          Actions
+                        </th>
+                      </tr>
+                    </thead>
+
+                    <tbody className="divide-y divide-border text-sm">
+                      {loadingData ? (
+                        <tr>
+                          <td
+                            colSpan={6}
+                            className="py-10 text-center text-xs text-fg-muted"
+                          >
+                            Loading caretaker applications...
+                          </td>
+                        </tr>
+                      ) : filteredCaretakers.length === 0 ? (
+                        <tr>
+                          <td
+                            colSpan={6}
+                            className="py-10 text-center text-xs text-fg-muted"
+                          >
+                            No caretakers match the selected filter.
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredCaretakers.map((c) => {
+                          const isBusy = actionBusyId === c.id;
+                          return (
+                            <tr
+                              key={c.id}
+                              className="hover:bg-surface-subtle/40 transition-colors align-middle"
+                            >
+                              {/* Applicant */}
+                              <td className="py-4 pl-6 pr-4">
+                                <div className="flex items-center gap-3 min-w-[210px]">
+                                  {c.avatarUrl ? (
+                                    <img
+                                      src={c.avatarUrl}
+                                      alt={c.fullName}
+                                      className="h-9 w-9 shrink-0 rounded-xl object-cover border border-border"
+                                    />
+                                  ) : (
+                                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/12 text-xs font-semibold text-primary">
+                                      {getInitials(c.fullName)}
+                                    </div>
+                                  )}
+                                  <div className="min-w-0">
+                                    <p className="font-semibold text-fg truncate">
+                                      {c.fullName}
+                                    </p>
+                                    <p className="text-xs text-fg-muted truncate">
+                                      {c.email} • {c.phone}
+                                    </p>
+                                  </div>
+                                </div>
+                              </td>
+
+                              {/* Dzongkhag */}
+                              <td className="px-4 py-4 text-xs font-medium text-fg whitespace-nowrap">
+                                {c.dzongkhag}
+                              </td>
+
+                              {/* Qualifications & Rate */}
+                              <td className="px-4 py-4 max-w-[260px]">
+                                <p
+                                  title={c.qualifications}
+                                  className="text-xs font-medium text-fg truncate"
+                                >
+                                  {c.qualifications}
+                                </p>
+                                <p className="text-xs text-fg-muted mt-0.5 whitespace-nowrap">
+                                  {c.yearsExperience} yrs •{' '}
+                                  {formatBtn(c.monthlyRateBtn)}/mo
+                                </p>
+                              </td>
+
+                              {/* View CID Document Button */}
+                              <td className="px-4 py-4 whitespace-nowrap">
+                                <button
+                                  type="button"
+                                  onClick={() => setCidModalCaretaker(c)}
+                                  className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-surface-subtle/70 px-3 py-1.5 text-xs font-medium text-fg hover:border-primary/40 hover:text-primary transition-colors"
+                                >
+                                  <FileText className="h-3.5 w-3.5 text-primary" />
+                                  View CID
+                                </button>
+                              </td>
+
+                              {/* Status */}
+                              <td className="px-4 py-4 whitespace-nowrap">
+                                <Badge
+                                  variant={
+                                    c.verificationStatus === 'APPROVED'
+                                      ? 'verified'
+                                      : c.verificationStatus === 'REJECTED'
+                                      ? 'rejected'
+                                      : 'pending'
+                                  }
+                                >
+                                  {c.verificationStatus}
+                                </Badge>
+                              </td>
+
+                              {/* Actions */}
+                              <td className="py-4 pl-4 pr-6 text-right whitespace-nowrap">
+                                <div className="inline-flex items-center justify-end gap-2">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    disabled={isBusy || c.verificationStatus === 'APPROVED'}
+                                    onClick={() =>
+                                      handleVerifyDecision(c.id, 'APPROVED')
+                                    }
+                                  >
+                                    <CheckCircle2 className="h-3.5 w-3.5 text-primary" />
+                                    Approve
+                                  </Button>
+
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    disabled={isBusy || c.verificationStatus === 'REJECTED'}
+                                    onClick={() => {
+                                      setRejectModalCaretaker(c);
+                                      setRejectionReason(c.rejectionReason || '');
+                                    }}
+                                  >
+                                    <XCircle className="h-3.5 w-3.5 text-red-500" />
+                                    Reject
+                                  </Button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* =============================================================== */}
+            {/* 6-MONTH CONTRACTS OVERVIEW TABLE (When Contracts Tab Selected)  */}
+            {/* =============================================================== */}
+            {activeSection === 'CONTRACTS' && (
+              <div className="rounded-2xl border border-border bg-surface shadow-soft overflow-hidden">
+                <div className="border-b border-border p-5">
+                  <h2 className="font-serif text-xl font-semibold text-fg">
+                    Platform 6-Month Childcare Contracts
+                  </h2>
+                  <p className="text-xs text-fg-muted mt-0.5">
+                    Audit all active, pending, and completed childcare agreements.
+                  </p>
+                </div>
+
+                <div className="w-full overflow-x-auto">
+                  <table className="w-full min-w-[820px] border-collapse text-left">
+                    <thead>
+                      <tr className="border-b border-border bg-surface-subtle/60 text-[11px] font-semibold uppercase tracking-wider text-fg-muted">
+                        <th className="py-3.5 pl-6 pr-4">Family / Parent</th>
+                        <th className="px-4 py-3.5">Caretaker</th>
+                        <th className="px-4 py-3.5 whitespace-nowrap">Duration</th>
+                        <th className="px-4 py-3.5 whitespace-nowrap">Monthly Rate</th>
+                        <th className="py-3.5 pl-4 pr-6 text-right whitespace-nowrap">
+                          Status
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border text-xs">
+                      {bookings.length === 0 ? (
+                        <tr>
+                          <td
+                            colSpan={5}
+                            className="py-10 text-center text-fg-muted"
+                          >
+                            No contracts recorded yet.
+                          </td>
+                        </tr>
+                      ) : (
+                        bookings.map((b: any) => (
+                          <tr key={b.id} className="hover:bg-surface-subtle/40">
+                            <td className="py-4 pl-6 pr-4 font-semibold text-fg">
+                              {b.parentName || b.parent_name || 'Parent'}
+                            </td>
+                            <td className="px-4 py-4 text-fg">
+                              {b.caretakerName || b.caretaker_name || 'Caretaker'}
+                            </td>
+                            <td className="px-4 py-4 text-fg-muted whitespace-nowrap">
+                              {b.durationMonths || b.duration_months || 6} Months (
+                              {b.startDate ? formatDisplayDate(b.startDate) : 'TBD'})
+                            </td>
+                            <td className="px-4 py-4 font-semibold text-fg whitespace-nowrap">
+                              {formatBtn(
+                                Number(
+                                  b.agreedMonthlyRateBtn ?? b.monthlyRateBtn ?? 0
+                                )
+                              )}
+                              /mo
+                            </td>
+                            <td className="py-4 pl-4 pr-6 text-right whitespace-nowrap">
+                              <Badge
+                                variant={
+                                  ['CONFIRMED', 'ACTIVE', 'ACCEPTED'].includes(b.status)
+                                    ? 'verified'
+                                    : b.status === 'REJECTED' || b.status === 'CANCELLED'
+                                    ? 'rejected'
+                                    : 'pending'
+                                }
+                              >
+                                {b.status}
+                              </Badge>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        </main>
+      </div>
+
+      {/* ================================================================= */}
+      {/* VIEW CITIZENSHIP ID (CID) MODAL                                   */}
+      {/* ================================================================= */}
+      <Modal
+        isOpen={Boolean(cidModalCaretaker)}
+        onClose={() => setCidModalCaretaker(null)}
+        title={`Citizenship ID Review — ${cidModalCaretaker?.fullName || ''}`}
+        subtitle={`${cidModalCaretaker?.dzongkhag || ''} • ${
+          cidModalCaretaker?.qualifications || ''
+        }`}
+      >
+        {cidModalCaretaker && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3 rounded-xl bg-surface-subtle p-3.5 text-xs">
+              <div>
+                <p className="text-fg-muted">Contact Email & Phone</p>
+                <p className="font-semibold text-fg mt-0.5">
+                  {cidModalCaretaker.email} • {cidModalCaretaker.phone}
+                </p>
+              </div>
+              <div>
+                <p className="text-fg-muted">Experience & Monthly Rate</p>
+                <p className="font-semibold text-fg mt-0.5">
+                  {cidModalCaretaker.yearsExperience} yrs •{' '}
+                  {formatBtn(cidModalCaretaker.monthlyRateBtn)}/mo
+                </p>
+              </div>
+            </div>
+
+            {cidDocumentUrl ? (
+              <div className="space-y-2">
+                <div className="overflow-hidden rounded-2xl border border-border bg-surface-subtle">
+                  {isPdfDocument ? (
+                    <iframe
+                      src={cidDocumentUrl}
+                      title="Caretaker CID PDF"
+                      className="h-[360px] w-full"
+                    />
+                  ) : (
+                    <img
+                      src={cidDocumentUrl}
+                      alt={`${cidModalCaretaker.fullName} Citizenship ID`}
+                      className="max-h-[360px] w-full object-contain bg-stone-950/5"
+                    />
+                  )}
+                </div>
+
+                <div className="flex justify-end">
+                  <a
+                    href={cidDocumentUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline"
+                  >
+                    Open full document in new tab <ExternalLink className="h-3.5 w-3.5" />
+                  </a>
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-5 text-center text-xs text-fg">
+                No Citizenship ID file path was attached to this applicant record.
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
+              <Badge
+                variant={
+                  cidModalCaretaker.verificationStatus === 'APPROVED'
+                    ? 'verified'
+                    : cidModalCaretaker.verificationStatus === 'REJECTED'
+                    ? 'rejected'
+                    : 'pending'
+                }
+              >
+                Current: {cidModalCaretaker.verificationStatus}
+              </Badge>
+
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={actionBusyId === cidModalCaretaker.id}
+                  onClick={() => {
+                    const target = cidModalCaretaker;
+                    setCidModalCaretaker(null);
+                    setRejectModalCaretaker(target);
+                    setRejectionReason(target.rejectionReason || '');
+                  }}
+                >
+                  <XCircle className="h-3.5 w-3.5 text-red-500" /> Reject
+                </Button>
+                <Button
+                  size="sm"
+                  disabled={actionBusyId === cidModalCaretaker.id}
+                  onClick={() =>
+                    handleVerifyDecision(cidModalCaretaker.id, 'APPROVED')
+                  }
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5" /> Approve Caretaker
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* ================================================================= */}
+      {/* REJECTION REASON MODAL                                            */}
+      {/* ================================================================= */}
+      <Modal
+        isOpen={Boolean(rejectModalCaretaker)}
+        onClose={() => setRejectModalCaretaker(null)}
+        title={`Reject ${rejectModalCaretaker?.fullName || 'Application'}`}
+        subtitle="Provide a brief note explaining why the Citizenship ID or credentials could not be approved."
+      >
+        {rejectModalCaretaker && (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleVerifyDecision(
+                rejectModalCaretaker.id,
+                'REJECTED',
+                rejectionReason
+              );
+            }}
+            className="space-y-4"
+          >
+            <div className="space-y-1">
+              <label className="block text-xs font-semibold text-fg">
+                Reason for Rejection
+              </label>
+              <textarea
+                rows={3}
+                required
+                value={rejectionReason}
+                onChange={(e) => setRejectionReason(e.target.value)}
+                placeholder="e.g., Citizenship ID image is blurry or expired. Please re-upload a clear scan."
+                className="w-full rounded-xl border border-border bg-surface-subtle/60 px-3.5 py-2.5 text-sm text-fg focus:border-primary focus:outline-none"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setRejectModalCaretaker(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                isLoading={actionBusyId === rejectModalCaretaker.id}
+              >
+                Confirm Rejection
+              </Button>
+            </div>
+          </form>
+        )}
+      </Modal>
+
+      {/* ================================================================= */}
+      {/* LOGOUT WARNING MODAL                                              */}
+      {/* ================================================================= */}
+      <Modal
+        isOpen={logoutModalOpen}
+        onClose={() => setLogoutModalOpen(false)}
+        title="Log out of Admin Portal?"
+        subtitle="Please confirm before ending your current administrator session."
+      >
+        <div className="space-y-4">
+          <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5 text-xs text-fg">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+            <p className="leading-relaxed">
+              <strong>Warning:</strong> Logging out will terminate your active admin session. You will need to sign back in with administrator credentials to audit Citizenship IDs or manage platform contracts.
+            </p>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-1">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setLogoutModalOpen(false)}
+            >
+              Stay Signed In
+            </Button>
+            <Button type="button" onClick={handleConfirmLogout}>
+              Yes, Log Out
+            </Button>
+          </div>
         </div>
-      )}
+      </Modal>
     </div>
   );
 }

@@ -1,48 +1,68 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { RowDataPacket } from 'mysql2';
-import path from 'path';
-import fs from 'fs';
-import { pool, withTransaction } from '../../config/db';
-import { authenticate, authorize } from '../../middlewares/auth.middleware';
+import { pool } from '../../config/db';
 import { AppError } from '../../middlewares/error.middleware';
+import { authenticate, authorize } from '../../middlewares/auth.middleware';
 import { createNotification } from '../notifications/notifications.service';
 
 const router = Router();
 
-router.use(authenticate, authorize('ADMIN'));
+const verifySchema = z.object({
+  status: z.enum(['APPROVED', 'REJECTED']),
+  rejectionReason: z.string().max(500).optional(),
+});
 
-router.get('/stats', async (_req: Request, res: Response, next: NextFunction) => {
+async function getProfileJoinConfig() {
+  const [cols] = await pool.execute<RowDataPacket[]>('SHOW COLUMNS FROM caretaker_profiles');
+  const names = new Set(cols.map((c) => String(c.Field)));
+  const fkCol = names.has('user_id') ? 'user_id' : names.has('caretaker_id') ? 'caretaker_id' : 'id';
+  const docCol = names.has('id_document_path')
+    ? 'id_document_path'
+    : names.has('id_document_url')
+    ? 'id_document_url'
+    : names.has('cid_document_path')
+    ? 'cid_document_path'
+    : null;
+  const hasVerifiedBy = names.has('verified_by');
+  const hasVerifiedAt = names.has('verified_at');
+  return { fkCol, docCol, hasVerifiedBy, hasVerifiedAt };
+}
+
+// Get platform KPI stats
+router.get('/stats', authenticate, authorize('ADMIN'), async (_req: Request, res: Response, next: NextFunction) => {
   try {
-    const [[userCounts]] = await pool.execute<RowDataPacket[]>(
-      `SELECT
-        SUM(role = 'PARENT') AS totalParents,
-        SUM(role = 'CARETAKER') AS totalCaretakers
-       FROM users`
+    const { fkCol } = await getProfileJoinConfig();
+
+    const [[parentRow]] = await pool.execute<RowDataPacket[]>(
+      `SELECT COUNT(*) AS count FROM users WHERE role = 'PARENT'`
     );
-    const [[caretakerCounts]] = await pool.execute<RowDataPacket[]>(
-      `SELECT
-        SUM(verification_status = 'APPROVED') AS verifiedCaretakers,
-        SUM(verification_status = 'PENDING') AS pendingVerifications
-       FROM caretaker_profiles`
+    const [[caretakerRow]] = await pool.execute<RowDataPacket[]>(
+      `SELECT COUNT(*) AS count FROM users WHERE role = 'CARETAKER'`
     );
-    const [[bookingCounts]] = await pool.execute<RowDataPacket[]>(
-      `SELECT
-        COUNT(*) AS totalBookings,
-        SUM(status IN ('CONFIRMED', 'ACTIVE')) AS activeContracts,
-        SUM(status = 'CANCELLED') AS cancelledBookings
-       FROM bookings`
+    const [[verifiedRow]] = await pool.execute<RowDataPacket[]>(
+      `SELECT COUNT(*) AS count
+       FROM users u
+       JOIN caretaker_profiles cp ON cp.${fkCol} = u.id
+       WHERE u.role = 'CARETAKER' AND cp.verification_status = 'APPROVED'`
+    );
+    const [[pendingRow]] = await pool.execute<RowDataPacket[]>(
+      `SELECT COUNT(*) AS count
+       FROM users u
+       LEFT JOIN caretaker_profiles cp ON cp.${fkCol} = u.id
+       WHERE u.role = 'CARETAKER' AND COALESCE(cp.verification_status, 'PENDING') = 'PENDING'`
+    );
+    const [[contractsRow]] = await pool.execute<RowDataPacket[]>(
+      `SELECT COUNT(*) AS count FROM bookings WHERE status IN ('ACCEPTED', 'CONFIRMED', 'ACTIVE')`
     );
 
     res.json({
       stats: {
-        totalParents: Number(userCounts.totalParents || 0),
-        totalCaretakers: Number(userCounts.totalCaretakers || 0),
-        verifiedCaretakers: Number(caretakerCounts.verifiedCaretakers || 0),
-        pendingVerifications: Number(caretakerCounts.pendingVerifications || 0),
-        totalBookings: Number(bookingCounts.totalBookings || 0),
-        activeContracts: Number(bookingCounts.activeContracts || 0),
-        cancelledBookings: Number(bookingCounts.cancelledBookings || 0),
+        totalParents: Number(parentRow?.count || 0),
+        totalCaretakers: Number(caretakerRow?.count || 0),
+        verifiedCaretakers: Number(verifiedRow?.count || 0),
+        pendingVerifications: Number(pendingRow?.count || 0),
+        activeContracts: Number(contractsRow?.count || 0),
       },
     });
   } catch (err) {
@@ -50,102 +70,126 @@ router.get('/stats', async (_req: Request, res: Response, next: NextFunction) =>
   }
 });
 
-router.get('/verifications', async (_req: Request, res: Response, next: NextFunction) => {
+// Get all caretakers with their caretaker_profiles & CID document path
+router.get('/caretakers', authenticate, authorize('ADMIN'), async (_req: Request, res: Response, next: NextFunction) => {
   try {
+    const { fkCol, docCol } = await getProfileJoinConfig();
+    const docSelect = docCol ? `cp.${docCol} AS idDocumentPath,` : `NULL AS idDocumentPath,`;
+
     const [rows] = await pool.execute<RowDataPacket[]>(
-      `SELECT
-        u.id, u.full_name AS fullName, u.email, u.phone, u.dzongkhag, u.address, u.created_at AS createdAt,
-        cp.years_experience AS yearsExperience, cp.qualifications, cp.monthly_rate_btn AS monthlyRateBtn,
-        cp.verification_status AS verificationStatus, cp.id_document_path AS idDocumentPath,
-        cp.rejection_reason AS rejectionReason
+      `SELECT u.id,
+              u.full_name AS fullName,
+              u.email,
+              u.phone,
+              u.dzongkhag,
+              u.address,
+              u.avatar_url AS avatarUrl,
+              u.is_active AS isActive,
+              u.created_at AS createdAt,
+              COALESCE(cp.years_experience, 0) AS yearsExperience,
+              COALESCE(cp.qualifications, 'Not specified') AS qualifications,
+              COALESCE(cp.monthly_rate_btn, 0) AS monthlyRateBtn,
+              COALESCE(cp.verification_status, 'PENDING') AS verificationStatus,
+              ${docSelect}
+              cp.rejection_reason AS rejectionReason
        FROM users u
-       JOIN caretaker_profiles cp ON cp.user_id = u.id
-       ORDER BY FIELD(cp.verification_status, 'PENDING', 'REJECTED', 'APPROVED'), u.created_at DESC`
+       LEFT JOIN caretaker_profiles cp ON cp.${fkCol} = u.id
+       WHERE u.role = 'CARETAKER'
+       ORDER BY FIELD(COALESCE(cp.verification_status, 'PENDING'), 'PENDING', 'REJECTED', 'APPROVED'), u.created_at DESC`
     );
-    res.json({ applications: rows });
+
+    res.json({ caretakers: rows });
   } catch (err) {
     next(err);
   }
 });
 
-// Secure administrator-only ID document retrieval
-router.get('/documents/:caretakerId', async (req: Request, res: Response, next: NextFunction) => {
+// Approve or Reject caretaker CID & credentials
+router.patch('/caretakers/:id/verify', authenticate, authorize('ADMIN'), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const [rows] = await pool.execute<RowDataPacket[]>(
-      'SELECT id_document_path FROM caretaker_profiles WHERE user_id = ?',
-      [req.params.caretakerId]
+    const caretakerId = String(req.params.id);
+    const { status, rejectionReason } = verifySchema.parse(req.body);
+    const { fkCol, hasVerifiedBy, hasVerifiedAt } = await getProfileJoinConfig();
+
+    const [users] = await pool.execute<RowDataPacket[]>(
+      `SELECT id, full_name FROM users WHERE id = ? AND role = 'CARETAKER'`,
+      [caretakerId]
     );
-    if (!rows[0]) throw new AppError('Document not found.', 404);
-    const fullPath = path.resolve(__dirname, '../../../', rows[0].id_document_path);
-    if (!fs.existsSync(fullPath)) {
-      throw new AppError('Uploaded document file does not exist on disk.', 404);
-    }
-    res.sendFile(fullPath);
-  } catch (err) {
-    next(err);
-  }
-});
-
-router.patch('/verifications/:caretakerId', async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const { decision, rejectionReason } = z
-      .object({
-        decision: z.enum(['APPROVED', 'REJECTED']),
-        rejectionReason: z.string().max(255).optional(),
-      })
-      .parse(req.body);
-
-    if (decision === 'REJECTED' && !rejectionReason?.trim()) {
-      throw new AppError('Please provide a clear reason when rejecting a verification request.', 400);
+    if (!users[0]) {
+      throw new AppError('Caretaker account not found.', 404);
     }
 
-    await withTransaction(async (conn) => {
-      await conn.execute(
+    const [existingProfile] = await pool.execute<RowDataPacket[]>(
+      `SELECT ${fkCol} FROM caretaker_profiles WHERE ${fkCol} = ?`,
+      [caretakerId]
+    );
+
+    if (existingProfile.length === 0) {
+      await pool.execute(
+        `INSERT INTO caretaker_profiles (${fkCol}, verification_status, rejection_reason)
+         VALUES (?, ?, ?)`,
+        [caretakerId, status, status === 'REJECTED' ? rejectionReason || null : null]
+      );
+    } else {
+      const extraSets = [
+        hasVerifiedBy ? ', verified_by = ?' : '',
+        hasVerifiedAt ? ', verified_at = NOW()' : '',
+      ].join('');
+      const params: any[] = [
+        status,
+        status === 'REJECTED' ? rejectionReason || null : null,
+      ];
+      if (hasVerifiedBy) params.push(req.user!.sub);
+      params.push(caretakerId);
+
+      await pool.execute(
         `UPDATE caretaker_profiles
-         SET verification_status = ?, rejection_reason = ?, verified_by = ?, verified_at = NOW()
-         WHERE user_id = ?`,
-        [decision, decision === 'REJECTED' ? rejectionReason!.trim() : null, req.user!.sub, req.params.caretakerId]
+         SET verification_status = ?,
+             rejection_reason = ?${extraSets}
+         WHERE ${fkCol} = ?`,
+        params
       );
+    }
 
-      await createNotification(
-        {
-          userId: req.params.caretakerId,
-          type: 'CARETAKER_VERIFICATION',
-          title: decision === 'APPROVED' ? 'Profile Verified!' : 'Verification Update Required',
-          message:
-            decision === 'APPROVED'
-              ? 'Congratulations! Your profile is now verified and visible to families across Bhutan.'
-              : `Your verification was not approved: ${rejectionReason}`,
-        },
-        conn
-      );
+    await createNotification({
+      userId: caretakerId,
+      type: status === 'APPROVED' ? 'VERIFICATION_APPROVED' : 'VERIFICATION_REJECTED',
+      title: status === 'APPROVED' ? 'Profile & CID Verified' : 'Verification Update Required',
+      message:
+        status === 'APPROVED'
+          ? 'Your Citizenship ID and credentials have been approved. Your profile is now live for parent bookings.'
+          : `Your verification was not approved${rejectionReason ? `: ${rejectionReason}` : '.'}`,
     });
 
-    res.json({ success: true, decision });
+    res.json({ success: true, status });
   } catch (err) {
     next(err);
   }
 });
 
-router.get('/users', async (_req: Request, res: Response, next: NextFunction) => {
+// Get all bookings/contracts for admin audit
+router.get('/bookings', authenticate, authorize('ADMIN'), async (_req: Request, res: Response, next: NextFunction) => {
   try {
     const [rows] = await pool.execute<RowDataPacket[]>(
-      `SELECT id, full_name AS fullName, email, phone, role, dzongkhag, is_active AS isActive, created_at AS createdAt
-       FROM users ORDER BY created_at DESC`
+      `SELECT b.id,
+              b.start_date AS startDate,
+              b.end_date AS endDate,
+              b.duration_months AS durationMonths,
+              b.agreed_monthly_rate_btn AS agreedMonthlyRateBtn,
+              b.estimated_total_btn AS estimatedTotalBtn,
+              b.status,
+              b.created_at AS createdAt,
+              p.full_name AS parentName,
+              c.full_name AS caretakerName,
+              ch.full_name AS childName
+       FROM bookings b
+       JOIN users p ON p.id = b.parent_id
+       JOIN users c ON c.id = b.caretaker_id
+       LEFT JOIN child_profiles ch ON ch.id = b.child_id
+       ORDER BY b.created_at DESC`
     );
-    res.json({ users: rows.map((u) => ({ ...u, isActive: Boolean(u.isActive) })) });
-  } catch (err) {
-    next(err);
-  }
-});
 
-router.patch('/users/:id/toggle-active', async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    if (req.params.id === req.user!.sub) {
-      throw new AppError('Administrators cannot deactivate their own account.', 400);
-    }
-    await pool.execute('UPDATE users SET is_active = NOT is_active WHERE id = ?', [req.params.id]);
-    res.json({ success: true });
+    res.json({ bookings: rows });
   } catch (err) {
     next(err);
   }

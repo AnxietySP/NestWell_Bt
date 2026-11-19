@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -14,7 +16,12 @@ import notificationRoutes from './modules/notifications/notifications.routes';
 
 const app = express();
 
-app.use(helmet());
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+    contentSecurityPolicy: false,
+  })
+);
 app.use(
   cors({
     origin: env.CLIENT_ORIGIN,
@@ -23,6 +30,29 @@ app.use(
 );
 app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
+
+// Serve uploaded Citizenship IDs and profile avatars statically
+const uploadCandidates = [
+  path.resolve(process.cwd(), 'uploads'),
+  path.resolve(__dirname, '../../uploads'),
+  path.resolve(__dirname, '../uploads'),
+  path.resolve(__dirname, 'uploads'),
+];
+
+for (const dir of Array.from(new Set(uploadCandidates))) {
+  if (fs.existsSync(dir)) {
+    app.use('/uploads', express.static(dir));
+    // Fallback if Multer saved files into uploads/avatars or uploads/cid
+    const avatarsSubdir = path.join(dir, 'avatars');
+    if (fs.existsSync(avatarsSubdir)) {
+      app.use('/uploads', express.static(avatarsSubdir));
+    }
+    const cidSubdir = path.join(dir, 'cid');
+    if (fs.existsSync(cidSubdir)) {
+      app.use('/uploads', express.static(cidSubdir));
+    }
+  }
+}
 
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,

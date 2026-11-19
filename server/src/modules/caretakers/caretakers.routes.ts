@@ -11,8 +11,12 @@ const router = Router();
 router.get('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { dzongkhag, minExp, maxMonthlyRate, search } = req.query;
-    const conditions: string[] = ["u.role = 'CARETAKER'", 'u.is_active = TRUE', "cp.verification_status = 'APPROVED'"];
-    const params: unknown[] = [];
+    const conditions: string[] = [
+      "u.role = 'CARETAKER'",
+      'u.is_active = TRUE',
+      "cp.verification_status = 'APPROVED'",
+    ];
+    const params: any[] = [];
 
     if (dzongkhag && typeof dzongkhag === 'string' && dzongkhag !== 'ALL') {
       conditions.push('u.dzongkhag = ?');
@@ -65,38 +69,43 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
 });
 
 // Caretaker's own full profile
-router.get('/me/profile', authenticate, authorize('CARETAKER'), async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const [rows] = await pool.execute<RowDataPacket[]>(
-      `SELECT
-        u.id, u.full_name AS fullName, u.email, u.phone, u.avatar_url AS avatarUrl, u.dzongkhag, u.address,
-        cp.bio, cp.years_experience AS yearsExperience, cp.qualifications,
-        cp.skills_json AS skills, cp.languages_json AS languages,
-        cp.hourly_rate_btn AS hourlyRateBtn, cp.daily_rate_btn AS dailyRateBtn,
-        cp.monthly_rate_btn AS monthlyRateBtn, cp.verification_status AS verificationStatus,
-        cp.rejection_reason AS rejectionReason, cp.is_available AS isAvailable,
-        cp.avg_rating AS avgRating, cp.total_reviews AS totalReviews
-       FROM users u
-       JOIN caretaker_profiles cp ON cp.user_id = u.id
-       WHERE u.id = ?`,
-      [req.user!.sub]
-    );
-    if (!rows[0]) throw new AppError('Caretaker profile not found.', 404);
-    const p = rows[0];
-    res.json({
-      profile: {
-        ...p,
-        skills: typeof p.skills === 'string' ? JSON.parse(p.skills) : p.skills,
-        languages: typeof p.languages === 'string' ? JSON.parse(p.languages) : p.languages,
-        monthlyRateBtn: Number(p.monthlyRateBtn),
-        avgRating: Number(p.avgRating),
-        isAvailable: Boolean(p.isAvailable),
-      },
-    });
-  } catch (err) {
-    next(err);
+router.get(
+  '/me/profile',
+  authenticate,
+  authorize('CARETAKER'),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const [rows] = await pool.execute<RowDataPacket[]>(
+        `SELECT
+          u.id, u.full_name AS fullName, u.email, u.phone, u.avatar_url AS avatarUrl, u.dzongkhag, u.address,
+          cp.bio, cp.years_experience AS yearsExperience, cp.qualifications,
+          cp.skills_json AS skills, cp.languages_json AS languages,
+          cp.hourly_rate_btn AS hourlyRateBtn, cp.daily_rate_btn AS dailyRateBtn,
+          cp.monthly_rate_btn AS monthlyRateBtn, cp.verification_status AS verificationStatus,
+          cp.rejection_reason AS rejectionReason, cp.is_available AS isAvailable,
+          cp.avg_rating AS avgRating, cp.total_reviews AS totalReviews
+         FROM users u
+         JOIN caretaker_profiles cp ON cp.user_id = u.id
+         WHERE u.id = ?`,
+        [req.user!.sub]
+      );
+      if (!rows[0]) throw new AppError('Caretaker profile not found.', 404);
+      const p = rows[0];
+      res.json({
+        profile: {
+          ...p,
+          skills: typeof p.skills === 'string' ? JSON.parse(p.skills) : p.skills,
+          languages: typeof p.languages === 'string' ? JSON.parse(p.languages) : p.languages,
+          monthlyRateBtn: Number(p.monthlyRateBtn),
+          avgRating: Number(p.avgRating),
+          isAvailable: Boolean(p.isAvailable),
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
   }
-});
+);
 
 const updateProfileSchema = z.object({
   bio: z.string().max(1500).optional(),
@@ -110,36 +119,45 @@ const updateProfileSchema = z.object({
   isAvailable: z.boolean(),
 });
 
-router.put('/me/profile', authenticate, authorize('CARETAKER'), async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const data = updateProfileSchema.parse(req.body);
-    await pool.execute(
-      `UPDATE caretaker_profiles
-       SET bio = ?, years_experience = ?, qualifications = ?, skills_json = ?, languages_json = ?,
-           monthly_rate_btn = ?, daily_rate_btn = ?, hourly_rate_btn = ?, is_available = ?
-       WHERE user_id = ?`,
-      [
-        data.bio ?? null,
-        data.yearsExperience,
-        data.qualifications,
-        JSON.stringify(data.skills),
-        JSON.stringify(data.languages),
-        data.monthlyRateBtn,
-        data.dailyRateBtn ?? null,
-        data.hourlyRateBtn ?? null,
-        data.isAvailable,
-        req.user!.sub,
-      ]
-    );
-    res.json({ success: true });
-  } catch (err) {
-    next(err);
+router.put(
+  '/me/profile',
+  authenticate,
+  authorize('CARETAKER'),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const data = updateProfileSchema.parse(req.body);
+      await pool.execute(
+        `UPDATE caretaker_profiles
+         SET bio = ?, years_experience = ?, qualifications = ?, skills_json = ?, languages_json = ?,
+             monthly_rate_btn = ?, daily_rate_btn = ?, hourly_rate_btn = ?, is_available = ?
+         WHERE user_id = ?`,
+        [
+          data.bio ?? null,
+          data.yearsExperience,
+          data.qualifications,
+          JSON.stringify(data.skills),
+          JSON.stringify(data.languages),
+          data.monthlyRateBtn,
+          data.dailyRateBtn ?? null,
+          data.hourlyRateBtn ?? null,
+          data.isAvailable,
+          req.user!.sub,
+        ]
+      );
+      res.json({ success: true });
+    } catch (err) {
+      next(err);
+    }
   }
-});
+);
 
 // Single caretaker public detail + reviews + blocked date windows
 router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const caretakerId = Array.isArray(req.params.id)
+      ? req.params.id[0]
+      : String(req.params.id);
+
     const [rows] = await pool.execute<RowDataPacket[]>(
       `SELECT
         u.id, u.full_name AS fullName, u.avatar_url AS avatarUrl, u.dzongkhag, u.address,
@@ -151,7 +169,7 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
        FROM users u
        JOIN caretaker_profiles cp ON cp.user_id = u.id
        WHERE u.id = ? AND u.role = 'CARETAKER'`,
-      [req.params.id]
+      [caretakerId]
     );
     if (!rows[0]) throw new AppError('Caretaker not found.', 404);
 
@@ -161,14 +179,14 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
        JOIN users u ON u.id = r.parent_id
        WHERE r.caretaker_id = ?
        ORDER BY r.created_at DESC`,
-      [req.params.id]
+      [caretakerId]
     );
 
     const [busyWindows] = await pool.execute<RowDataPacket[]>(
       `SELECT start_date AS startDate, end_date AS endDate, status
        FROM bookings
        WHERE caretaker_id = ? AND status IN ('ACCEPTED', 'CONFIRMED', 'ACTIVE')`,
-      [req.params.id]
+      [caretakerId]
     );
 
     const c = rows[0];

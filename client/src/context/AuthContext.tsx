@@ -12,6 +12,31 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
+export function normalizeMediaUrl(raw?: string | null): string | null {
+  if (!raw) return null;
+  const forwardSlashed = raw.replace(/\\/g, '/').trim();
+  if (!forwardSlashed) return null;
+
+  if (/^https?:\/\/localhost:\d+\//i.test(forwardSlashed)) {
+    return forwardSlashed.replace(/^https?:\/\/localhost:\d+/i, window.location.origin);
+  }
+  if (/^https?:\/\//i.test(forwardSlashed)) {
+    return forwardSlashed;
+  }
+
+  const cleaned = forwardSlashed.replace(/^\/+/, '');
+  return `${window.location.origin}/${cleaned}`;
+}
+
+function normalizeUser(rawUser: any): User | null {
+  if (!rawUser) return null;
+  const rawAvatar = rawUser.avatarUrl ?? rawUser.avatar_url ?? null;
+  return {
+    ...rawUser,
+    avatarUrl: normalizeMediaUrl(rawAvatar),
+  };
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -20,7 +45,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const { data } = await api.post('/auth/refresh');
       setAccessToken(data.accessToken);
-      setUser(data.user);
+      setUser(normalizeUser(data.user));
     } catch {
       setAccessToken(null);
       setUser(null);
@@ -35,7 +60,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const loginSuccess = (accessToken: string, nextUser: User) => {
     setAccessToken(accessToken);
-    setUser(nextUser);
+    setUser(normalizeUser(nextUser));
   };
 
   const logout = async () => {
@@ -49,7 +74,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refreshUser = async () => {
     const { data } = await api.get('/auth/me');
-    setUser(data.user);
+    setUser(normalizeUser(data.user));
   };
 
   return (

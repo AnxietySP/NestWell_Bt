@@ -1,62 +1,127 @@
-import { useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Camera } from 'lucide-react';
 import { api } from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
+import { Modal } from '../ui/Modal';
+import { Button } from '../ui/Button';
 
 export function AvatarUploader() {
   const { user, refreshUser } = useAuth();
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const onPick = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+
+  const handleFilePicked = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setBusy(true);
-    setError('');
+
+    const objectUrl = URL.createObjectURL(file);
+    setPendingFile(file);
+    setPreviewUrl(objectUrl);
+  };
+
+  const handleCancelChange = () => {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setPendingFile(null);
+    setPreviewUrl(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleConfirmUpload = async () => {
+    if (!pendingFile) return;
+    setUploading(true);
     try {
-      const form = new FormData();
-      form.append('avatar', file);
-      await api.patch('/auth/me/avatar', form);
+      const formData = new FormData();
+      formData.append('avatar', pendingFile);
+      await api.patch('/auth/me/avatar', formData);
       await refreshUser();
+      handleCancelChange();
     } catch (err: any) {
-      setError(err?.response?.data?.message || 'Upload failed.');
+      window.alert(err?.response?.data?.message || 'Failed to update profile picture.');
     } finally {
-      setBusy(false);
-      e.target.value = '';
+      setUploading(false);
     }
   };
 
   return (
-    <div className="flex items-center gap-4">
-      <div className="relative h-20 w-20 overflow-hidden rounded-full border border-border bg-surface-subtle">
-        <img
-          src={user?.avatarUrl || '/images/default-avatar.png'}
-          alt="Profile"
-          className="h-full w-full object-cover"
-        />
-      </div>
-      <div>
+    <>
+      <div className="flex items-center gap-3">
         <button
           type="button"
-          disabled={busy}
-          onClick={() => inputRef.current?.click()}
-          className="inline-flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-sm font-medium text-fg hover:bg-surface-subtle disabled:opacity-60"
+          onClick={() => fileInputRef.current?.click()}
+          className="group relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border bg-primary/12 text-xs font-semibold text-primary"
+          title="Change profile picture"
         >
-          <Camera className="h-4 w-4" /> {busy ? 'Uploading...' : 'Change photo'}
+          {user?.avatarUrl ? (
+            <img
+              src={user.avatarUrl}
+              alt={user.fullName}
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            <span>{(user?.fullName || 'U').charAt(0).toUpperCase()}</span>
+          )}
+          <span className="absolute inset-0 flex items-center justify-center bg-black/45 text-white opacity-0 transition-opacity group-hover:opacity-100">
+            <Camera className="h-3.5 w-3.5" />
+          </span>
         </button>
-        <input
-          ref={inputRef}
-          type="file"
-          accept="image/jpeg,image/png,image/webp"
-          className="hidden"
-          onChange={onPick}
-        />
-        {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
-      </div>
-    </div>
-  );
-  
-}
 
-export default AvatarUploader;
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          className="text-xs font-medium text-fg-muted hover:text-primary transition-colors"
+        >
+          Change Profile Picture
+        </button>
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          onChange={handleFilePicked}
+          className="hidden"
+        />
+      </div>
+
+      {/* Confirmation Modal */}
+      <Modal
+        isOpen={Boolean(pendingFile)}
+        onClose={handleCancelChange}
+        title="Change Profile Picture"
+        subtitle="Are you sure you want to change your profile picture?"
+      >
+        <div className="space-y-4">
+          {previewUrl && (
+            <div className="flex justify-center py-2">
+              <img
+                src={previewUrl}
+                alt="New profile preview"
+                className="h-24 w-24 rounded-full object-cover border border-border shadow-soft"
+              />
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2 pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleCancelChange}
+              disabled={uploading}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={handleConfirmUpload}
+              isLoading={uploading}
+            >
+              Yes, Change Picture
+            </Button>
+          </div>
+        </div>
+      </Modal>
+    </>
+  );
+}

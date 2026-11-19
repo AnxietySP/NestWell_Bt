@@ -1,384 +1,592 @@
 import React, { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Eye, EyeOff, Users, Award, CheckCircle2 } from 'lucide-react';
+import {
+  ShieldCheck,
+  Calendar,
+  Lock,
+  Eye,
+  EyeOff,
+  ArrowRight,
+  ArrowLeft,
+  Sparkles,
+  CheckCircle2,
+  AlertCircle,
+  Upload,
+  FileCheck2,
+} from 'lucide-react';
 import { api } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
-import { BHUTAN_DZONGKHAGS } from '../lib/date';
-import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
 
-function getPasswordStrength(pw: string): { label: string; score: number; color: string } {
-  let score = 0;
-  if (pw.length >= 8) score++;
-  if (/[A-Z]/.test(pw)) score++;
-  if (/[0-9]/.test(pw)) score++;
-  if (/[^A-Za-z0-9]/.test(pw)) score++;
-  if (score <= 1) return { label: 'Weak', score: 1, color: 'bg-red-500' };
-  if (score === 2) return { label: 'Fair', score: 2, color: 'bg-amber-500' };
-  if (score === 3) return { label: 'Good', score: 3, color: 'bg-emerald-500' };
-  return { label: 'Strong', score: 4, color: 'bg-primary' };
-}
+const DZONGKHAGS = [
+  'Thimphu',
+  'Paro',
+  'Chukha (Phuentsholing)',
+  'Punakha',
+  'Wangdue Phodrang',
+  'Sarpang (Gelephu)',
+  'Bumthang',
+  'Trashigang',
+  'Mongar',
+  'Samdrup Jongkhar',
+  'Trongsa',
+  'Haa',
+  'Tsirang',
+  'Dagana',
+  'Samtse',
+  'Zhemgang',
+  'Pemagatshel',
+  'Lhuentse',
+  'Trashiyangtse',
+  'Gasa',
+];
 
 export function RegisterPage() {
-  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { loginSuccess } = useAuth();
 
-  const [role, setRole] = useState<'PARENT' | 'CARETAKER'>(
-    searchParams.get('role') === 'CARETAKER' ? 'CARETAKER' : 'PARENT'
-  );
+  const initialRole =
+    searchParams.get('role')?.toUpperCase() === 'CARETAKER' ? 'CARETAKER' : 'PARENT';
 
+  const [role, setRole] = useState<'PARENT' | 'CARETAKER'>(initialRole);
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
+  const [localPhone, setLocalPhone] = useState('');
   const [dzongkhag, setDzongkhag] = useState('Thimphu');
   const [address, setAddress] = useState('');
-  const [agreeTerms, setAgreeTerms] = useState(false);
-
-  // Caretaker-only fields
-  const [yearsExperience, setYearsExperience] = useState('3');
-  const [qualifications, setQualifications] = useState('');
-  const [skills, setSkills] = useState('Infant Care, Toddler Routines, Pediatric First Aid');
-  const [monthlyRateBtn, setMonthlyRateBtn] = useState('20000');
-  const [bio, setBio] = useState('');
-  const [idDocument, setIdDocument] = useState<File | null>(null);
-  const [avatar, setAvatar] = useState<File | null>(null);
-
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
+
+  // Caretaker-specific fields
+  const [yearsExperience, setYearsExperience] = useState('2');
+  const [qualifications, setQualifications] = useState('');
+  const [monthlyRateBtn, setMonthlyRateBtn] = useState('15000');
+  const [skills, setSkills] = useState('Infant Care, First Aid, Meal Prep');
+  const [languages, setLanguages] = useState('Dzongkha, English');
+  const [bio, setBio] = useState('');
+  const [cidFile, setCidFile] = useState<File | null>(null);
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const strength = getPasswordStrength(password);
+  // Keeps only digits (up to 8 digits for Bhutanese numbers) and strips +975 if pasted
+  const handleLocalPhoneChange = (raw: string) => {
+    const withoutPrefix = raw.replace(/^\+?975\s*/, '');
+    const digitsOnly = withoutPrefix.replace(/\D/g, '').slice(0, 8);
+    setLocalPhone(digitsOnly);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
-    if (password !== confirmPassword) {
-      setError('Passwords do not match.');
-      return;
-    }
-    if (!agreeTerms) {
-      setError('Please agree to the NestWell.BT Terms & Conditions.');
+    if (localPhone.length < 7) {
+      setError('Please enter a valid Bhutanese phone number after +975.');
       return;
     }
 
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters long.');
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setError('Password and Confirm Password do not match.');
+      return;
+    }
+
+    if (role === 'CARETAKER' && !cidFile) {
+      setError('Please upload your Citizenship ID (CID) document for verification.');
+      return;
+    }
+
+    const formattedPhone = `+975${localPhone}`;
+
     setLoading(true);
     try {
-      if (role === 'PARENT') {
-        const { data } = await api.post('/auth/register/parent', {
-          fullName,
-          email,
-          phone,
-          password,
-          dzongkhag,
-          address,
-        });
-        loginSuccess(data.accessToken, data.user);
-        navigate('/dashboard/parent');
-      } else {
-        if (!idDocument) {
-          setError('Please upload your Bhutanese Citizenship ID (CID) or Passport document.');
-          setLoading(false);
-          return;
-        }
+      if (role === 'CARETAKER') {
         const formData = new FormData();
-        formData.append('fullName', fullName);
-        formData.append('email', email);
-        formData.append('phone', phone);
-        formData.append('password', password);
+        formData.append('fullName', fullName.trim());
+        formData.append('email', email.trim());
+        formData.append('phone', formattedPhone);
         formData.append('dzongkhag', dzongkhag);
-        formData.append('address', address);
-        formData.append('yearsExperience', yearsExperience);
-        formData.append('qualifications', qualifications);
-        formData.append('skills', skills);
-        formData.append('monthlyRateBtn', monthlyRateBtn);
-        formData.append('bio', bio);
-        formData.append('idDocument', idDocument);
-        if (avatar) formData.append('avatar', avatar);
+        formData.append('address', address.trim());
+        formData.append('password', password);
+        formData.append('yearsExperience', String(Number(yearsExperience) || 0));
+        formData.append('qualifications', qualifications.trim());
+        formData.append('monthlyRateBtn', String(Number(monthlyRateBtn) || 15000));
+        formData.append(
+          'skills',
+          JSON.stringify(
+            skills
+              .split(',')
+              .map((s) => s.trim())
+              .filter(Boolean)
+          )
+        );
+        formData.append(
+          'languages',
+          JSON.stringify(
+            languages
+              .split(',')
+              .map((l) => l.trim())
+              .filter(Boolean)
+          )
+        );
+        formData.append('bio', bio.trim());
+        if (cidFile) formData.append('idDocument', cidFile);
 
         const { data } = await api.post('/auth/register/caretaker', formData, {
           headers: { 'Content-Type': 'multipart/form-data' },
         });
-        loginSuccess(data.accessToken, data.user);
-        navigate('/dashboard/caretaker');
+        if (data?.accessToken && data?.user) {
+          loginSuccess(data.accessToken, data.user);
+          navigate('/dashboard/caretaker');
+        } else {
+          navigate('/login');
+        }
+      } else {
+        const { data } = await api.post('/auth/register/parent', {
+          fullName: fullName.trim(),
+          email: email.trim(),
+          phone: formattedPhone,
+          dzongkhag,
+          address: address.trim(),
+          password,
+        });
+        if (data?.accessToken && data?.user) {
+          loginSuccess(data.accessToken, data.user);
+          navigate('/dashboard/parent');
+        } else {
+          navigate('/login');
+        }
       }
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Registration failed. Please check your inputs.');
+      setError(
+        err.response?.data?.message ||
+          'Unable to complete registration. Please check your details and try again.'
+      );
     } finally {
       setLoading(false);
     }
   };
 
-  const points =
-    role === 'PARENT'
-      ? [
-          'Every caretaker’s CID and documents are verified',
-          'Minimum 6-month contracts for steady child care',
-          'Clear monthly BTN pricing with no hidden fees',
-        ]
-      : [
-          'Verified profile badge trusted by Bhutanese families',
-          'Predictable 6+ month placements and steady income',
-          'Set your own monthly rate and highlight ECCD skills',
-        ];
-
   return (
-    <div className="mx-auto flex max-w-7xl flex-col items-start justify-between gap-12 px-4 py-12 sm:px-6 lg:flex-row lg:px-8">
-      {/* Left Open Editorial Column */}
-      <div className="hidden lg:block lg:w-5/12 lg:sticky lg:top-24 space-y-6">
-        <h2 className="font-serif text-4xl font-semibold text-fg leading-[1.15] tracking-tight">
-          {role === 'PARENT'
-            ? 'Find a trusted long-term nanny for your family.'
-            : 'Build a respected career in professional childcare.'}
-        </h2>
-        <p className="text-base text-fg-muted leading-relaxed">
-          {role === 'PARENT'
-            ? 'Browse CID-verified caretakers across Bhutan and arrange secure six-month contracts with predictable monthly payments.'
-            : 'Join verified childcare specialists across Bhutan. Set your monthly rate, showcase your ECCD qualifications, and commit to meaningful placements.'}
-        </p>
+    <div className="min-h-screen bg-bg px-4 py-8 sm:px-8 lg:px-12 flex items-center justify-center">
+      <div className="mx-auto grid w-full max-w-[1160px] items-start gap-10 lg:grid-cols-12 lg:gap-16">
+        {/* ================================================================= */}
+        {/* LEFT DARK ANCHOR PANEL (Sticky on Desktop, Zero Borders)          */}
+        {/* ================================================================= */}
+        <div className="lg:col-span-5 lg:sticky lg:top-10 rounded-3xl bg-[#242926] p-8 sm:p-10 text-white shadow-[0_24px_60px_-18px_rgba(36,41,38,0.28)] flex flex-col justify-between space-y-9">
+          <div className="space-y-6">
+            <span className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3.5 py-1.5 text-xs font-medium text-emerald-300">
+              <Sparkles className="h-3.5 w-3.5" /> NestWell.BT Onboarding
+            </span>
 
-        <ul className="space-y-3 pt-2 text-sm text-fg-muted">
-          {points.map((item) => (
-            <li key={item} className="flex items-center gap-2.5">
-              <CheckCircle2 className="h-4 w-4 shrink-0 text-primary" />
-              <span>{item}</span>
-            </li>
-          ))}
-        </ul>
-
-        <p className="pt-2 text-xs text-fg-muted">
-          Need help?{' '}
-          <a href="mailto:support@nestwell.bt" className="font-medium text-primary hover:underline">
-            support@nestwell.bt
-          </a>
-        </p>
-      </div>
-
-      {/* Right Clean Form Card */}
-      <div className="w-full max-w-xl lg:w-7/12">
-        <div className="rounded-2xl border border-border bg-surface p-7 shadow-soft sm:p-9 space-y-5">
-          <div>
-            <h1 className="font-serif text-2xl font-semibold text-fg sm:text-3xl">Create Your Account</h1>
-            <p className="mt-1 text-sm text-fg-muted">
-              Already registered?{' '}
-              <Link to="/login" className="font-medium text-primary hover:underline">
-                Sign in here
-              </Link>
-            </p>
-          </div>
-
-          {/* Role Switcher */}
-          <div className="grid grid-cols-2 gap-2 rounded-xl border border-border bg-surface-subtle p-1">
-            <button
-              type="button"
-              onClick={() => setRole('PARENT')}
-              className={`flex items-center justify-center gap-2 rounded-lg py-2 text-sm font-medium transition-all ${
-                role === 'PARENT'
-                  ? 'bg-surface text-fg shadow-soft'
-                  : 'text-fg-muted hover:text-fg'
-              }`}
-            >
-              <Users className="h-4 w-4 text-primary" /> Register as Parent
-            </button>
-            <button
-              type="button"
-              onClick={() => setRole('CARETAKER')}
-              className={`flex items-center justify-center gap-2 rounded-lg py-2 text-sm font-medium transition-all ${
-                role === 'CARETAKER'
-                  ? 'bg-surface text-fg shadow-soft'
-                  : 'text-fg-muted hover:text-fg'
-              }`}
-            >
-              <Award className="h-4 w-4 text-primary" /> Register as Caretaker
-            </button>
-          </div>
-
-          {error && (
-            <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-700 dark:text-red-300">
-              {error}
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Input
-                label="Full Name"
-                required
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                placeholder="e.g., Tshering Pem"
-              />
-              <Input
-                label="Phone Number"
-                required
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="+975-17XXXXXX"
-              />
+            <div className="space-y-3">
+              <h1 className="font-serif text-3xl sm:text-4xl font-semibold leading-[1.15] tracking-tight">
+                {role === 'PARENT'
+                  ? 'Find trusted, verified care for your family.'
+                  : 'Join Bhutan’s verified caretaker network.'}
+              </h1>
+              <p className="text-sm text-stone-300 leading-relaxed">
+                {role === 'PARENT'
+                  ? 'Create your family account to add encrypted child profiles and book CID-verified caretakers for 6+ month placements.'
+                  : 'Submit your Citizenship ID and credentials to connect with families offering steady 6-month childcare contracts.'}
+              </p>
             </div>
 
-            <Input
-              label="Email Address"
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@example.bt"
-            />
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <Input
-                  label="Password"
-                  type={showPass ? 'text' : 'password'}
-                  required
-                  minLength={8}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Min. 8 characters"
-                  rightElement={
-                    <button
-                      type="button"
-                      onClick={() => setShowPass(!showPass)}
-                      className="text-fg-muted hover:text-fg"
-                    >
-                      {showPass ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </button>
-                  }
-                />
-                {password && (
-                  <div className="mt-1.5 flex items-center gap-2">
-                    <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-subtle">
-                      <div
-                        className={`h-full transition-all ${strength.color}`}
-                        style={{ width: `${(strength.score / 4) * 100}%` }}
-                      />
-                    </div>
-                    <span className="text-[11px] font-medium text-fg-muted">{strength.label}</span>
-                  </div>
-                )}
-              </div>
-
-              <Input
-                label="Confirm Password"
-                type={showPass ? 'text' : 'password'}
-                required
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="Re-enter password"
-              />
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <label className="mb-1.5 block text-sm font-medium text-fg">Dzongkhag</label>
-                <select
-                  value={dzongkhag}
-                  onChange={(e) => setDzongkhag(e.target.value)}
-                  className="w-full rounded-lg border border-border bg-surface px-3.5 py-2.5 text-sm text-fg focus:border-primary focus:outline-none"
+            {/* Borderless Tonal Feature Pills */}
+            <div className="space-y-3 pt-1">
+              {[
+                {
+                  icon: <ShieldCheck className="h-4 w-4 text-emerald-300" />,
+                  title: 'CID & Credential Screening',
+                  desc: 'Every caretaker is verified by our admin team before activation.',
+                },
+                {
+                  icon: <Calendar className="h-4 w-4 text-emerald-300" />,
+                  title: '6-Month Minimum Commitment',
+                  desc: 'Consistent daily routines for children and dependable monthly BTN pay.',
+                },
+                {
+                  icon: <Lock className="h-4 w-4 text-emerald-300" />,
+                  title: 'Private Household Records',
+                  desc: 'Sensitive child and identity records stay encrypted and protected.',
+                },
+              ].map((item) => (
+                <div
+                  key={item.title}
+                  className="flex items-start gap-3.5 rounded-2xl bg-white/[0.06] p-4"
                 >
-                  {BHUTAN_DZONGKHAGS.map((d) => (
-                    <option key={d} value={d}>{d}</option>
-                  ))}
-                </select>
-              </div>
-              <Input
-                label="Residential Address"
-                required
-                value={address}
-                onChange={(e) => setAddress(e.target.value)}
-                placeholder="e.g., Changangkha, Thimphu"
-              />
+                  <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-primary/20">
+                    {item.icon}
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold text-white">{item.title}</p>
+                    <p className="text-[11px] text-stone-300 mt-0.5 leading-relaxed">
+                      {item.desc}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Borderless Bottom Trust Row */}
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 text-xs text-stone-300">
+            <span className="inline-flex items-center gap-1.5">
+              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-300" /> Free account setup
+            </span>
+            <span>NestWell.BT</span>
+          </div>
+        </div>
+
+        {/* ================================================================= */}
+        {/* RIGHT REGISTRATION COLUMN (Open on Canvas — Zero Borders)         */}
+        {/* ================================================================= */}
+        <div className="lg:col-span-7 flex flex-col justify-center">
+          <div className="mx-auto w-full max-w-[520px] space-y-6">
+            <Link
+              to="/"
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-fg-muted hover:text-primary transition-colors"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" /> Back to NestWell.BT
+            </Link>
+
+            <div className="space-y-2">
+              <h2 className="font-serif text-3xl sm:text-4xl font-semibold tracking-tight text-fg">
+                Create your account
+              </h2>
+              <p className="text-sm text-fg-muted">
+                Already have an account?{' '}
+                <Link
+                  to="/login"
+                  className="font-semibold text-primary hover:underline"
+                >
+                  Sign in
+                </Link>
+              </p>
             </div>
 
-            {role === 'CARETAKER' && (
-              <div className="space-y-4 rounded-xl border border-border bg-surface-subtle p-4">
-                <p className="text-xs font-semibold uppercase tracking-wider text-primary">
-                  Professional Caretaker Credentials
-                </p>
+            {/* Role Toggle Pill */}
+            <div className="inline-flex rounded-full bg-surface p-1 text-xs font-medium shadow-[0_6px_20px_-8px_rgba(36,41,38,0.08)]">
+              {(
+                [
+                  { id: 'PARENT', label: 'I am a Parent' },
+                  { id: 'CARETAKER', label: 'I am a Caretaker' },
+                ] as const
+              ).map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setRole(opt.id)}
+                  className={`rounded-full px-5 py-2.5 transition-all ${
+                    role === opt.id
+                      ? 'bg-[#242926] text-white'
+                      : 'text-fg-muted hover:text-fg'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
 
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <Input
-                    label="Years of Experience"
-                    type="number"
-                    min={0}
-                    max={45}
-                    required
-                    value={yearsExperience}
-                    onChange={(e) => setYearsExperience(e.target.value)}
-                  />
-                  <Input
-                    label="Expected Monthly Rate (BTN)"
-                    type="number"
-                    min={3000}
-                    required
-                    value={monthlyRateBtn}
-                    onChange={(e) => setMonthlyRateBtn(e.target.value)}
-                  />
-                </div>
-
-                <Input
-                  label="Qualifications & Certifications"
-                  required
-                  value={qualifications}
-                  onChange={(e) => setQualifications(e.target.value)}
-                  placeholder="e.g., ECCD Certificate, Pediatric First Aid"
-                />
-
-                <Input
-                  label="Core Skills (comma-separated)"
-                  required
-                  value={skills}
-                  onChange={(e) => setSkills(e.target.value)}
-                />
-
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div>
-                    <label className="mb-1.5 block text-xs font-medium text-fg">
-                      Citizenship ID / Passport (PDF, JPG, PNG — Max 5MB) *
-                    </label>
-                    <input
-                      type="file"
-                      accept=".pdf,.jpg,.jpeg,.png"
-                      required
-                      onChange={(e) => setIdDocument(e.target.files?.[0] || null)}
-                      className="block w-full text-xs text-fg-muted file:mr-3 file:rounded-lg file:border-0 file:bg-primary file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1.5 block text-xs font-medium text-fg">
-                      Profile Photo (Optional)
-                    </label>
-                    <input
-                      type="file"
-                      accept=".jpg,.jpeg,.png,.webp"
-                      onChange={(e) => setAvatar(e.target.files?.[0] || null)}
-                      className="block w-full text-xs text-fg-muted file:mr-3 file:rounded-lg file:border-0 file:bg-surface file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-fg"
-                    />
-                  </div>
-                </div>
+            {error && (
+              <div className="flex items-start gap-2.5 rounded-2xl bg-red-500/10 px-4 py-3 text-xs text-red-700 dark:text-red-300">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-600" />
+                <span>{error}</span>
               </div>
             )}
 
-            <label className="flex items-start gap-2.5 text-xs text-fg-muted cursor-pointer pt-0.5">
-              <input
-                type="checkbox"
-                checked={agreeTerms}
-                onChange={(e) => setAgreeTerms(e.target.checked)}
-                className="mt-0.5 h-4 w-4 rounded border-border accent-primary"
-              />
-              <span>
-                I agree to NestWell.BT’s Terms of Service, Privacy Policy, and the <strong>six-month minimum contract</strong> standard.
-              </span>
-            </label>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              {/* Full Name & Locked +975 Phone Number */}
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-semibold text-fg">
+                    Full Name
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    placeholder="Karma Wangchuk"
+                    className="w-full rounded-2xl bg-surface px-4 py-3 text-sm text-fg placeholder:text-fg-muted shadow-[0_6px_20px_-8px_rgba(36,41,38,0.08)] focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  />
+                </div>
 
-            <Button type="submit" className="w-full" size="lg" isLoading={loading}>
-              {role === 'PARENT' ? 'Create Parent Account' : 'Submit Caretaker Application'}
-            </Button>
-          </form>
+                <div className="space-y-1.5">
+                  <label
+                    htmlFor="register-phone"
+                    className="block text-xs font-semibold text-fg"
+                  >
+                    Phone Number
+                  </label>
+                  <div className="flex items-center overflow-hidden rounded-2xl bg-surface shadow-[0_6px_20px_-8px_rgba(36,41,38,0.08)] focus-within:ring-2 focus-within:ring-primary/30">
+                    <span
+                      aria-hidden="true"
+                      className="select-none bg-surface-subtle/80 px-3.5 py-3 text-sm font-semibold text-fg"
+                    >
+                      +975
+                    </span>
+                    <input
+                      id="register-phone"
+                      type="tel"
+                      inputMode="numeric"
+                      required
+                      maxLength={8}
+                      value={localPhone}
+                      onChange={(e) => handleLocalPhoneChange(e.target.value)}
+                      placeholder="17 00 00 00"
+                      className="w-full bg-transparent px-3 py-3 text-sm text-fg placeholder:text-fg-muted focus:outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Email Address */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-semibold text-fg">
+                  Email Address
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="name@example.bt"
+                  className="w-full rounded-2xl bg-surface px-4 py-3 text-sm text-fg placeholder:text-fg-muted shadow-[0_6px_20px_-8px_rgba(36,41,38,0.08)] focus:outline-none focus:ring-2 focus:ring-primary/30"
+                />
+              </div>
+
+              {/* Password & Confirm Password */}
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-semibold text-fg">
+                    Password
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showPass ? 'text' : 'password'}
+                      required
+                      minLength={8}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="Min. 8 characters"
+                      className="w-full rounded-2xl bg-surface py-3 pl-4 pr-10 text-sm text-fg placeholder:text-fg-muted shadow-[0_6px_20px_-8px_rgba(36,41,38,0.08)] focus:outline-none focus:ring-2 focus:ring-primary/30"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPass(!showPass)}
+                      aria-label="Toggle password visibility"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-fg-muted hover:text-fg"
+                    >
+                      {showPass ? (
+                        <EyeOff className="h-4 w-4" />
+                      ) : (
+                        <Eye className="h-4 w-4" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-semibold text-fg">
+                    Confirm Password
+                  </label>
+                  <input
+                    type={showPass ? 'text' : 'password'}
+                    required
+                    minLength={8}
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="Re-enter password"
+                    className={`w-full rounded-2xl bg-surface px-4 py-3 text-sm text-fg placeholder:text-fg-muted shadow-[0_6px_20px_-8px_rgba(36,41,38,0.08)] focus:outline-none focus:ring-2 transition-all ${
+                      confirmPassword && password !== confirmPassword
+                        ? 'ring-2 ring-red-500/40 focus:ring-red-500/50'
+                        : 'focus:ring-primary/30'
+                    }`}
+                  />
+                </div>
+              </div>
+
+              {/* Dzongkhag & Address */}
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-semibold text-fg">
+                    Dzongkhag
+                  </label>
+                  <select
+                    value={dzongkhag}
+                    onChange={(e) => setDzongkhag(e.target.value)}
+                    className="w-full rounded-2xl bg-surface px-4 py-3 text-sm text-fg shadow-[0_6px_20px_-8px_rgba(36,41,38,0.08)] focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  >
+                    {DZONGKHAGS.map((dz) => (
+                      <option key={dz} value={dz}>
+                        {dz}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-semibold text-fg">
+                    Locality / Address
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={address}
+                    onChange={(e) => setAddress(e.target.value)}
+                    placeholder="Motithang, Thimphu"
+                    className="w-full rounded-2xl bg-surface px-4 py-3 text-sm text-fg placeholder:text-fg-muted shadow-[0_6px_20px_-8px_rgba(36,41,38,0.08)] focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  />
+                </div>
+              </div>
+
+              {/* Caretaker-Specific Fields */}
+              {role === 'CARETAKER' && (
+                <div className="space-y-4 pt-2">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <label className="block text-xs font-semibold text-fg">
+                        Years of Experience
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={40}
+                        required
+                        value={yearsExperience}
+                        onChange={(e) => setYearsExperience(e.target.value)}
+                        className="w-full rounded-2xl bg-surface px-4 py-3 text-sm text-fg shadow-[0_6px_20px_-8px_rgba(36,41,38,0.08)] focus:outline-none focus:ring-2 focus:ring-primary/30"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="block text-xs font-semibold text-fg">
+                        Monthly Rate (BTN)
+                      </label>
+                      <input
+                        type="number"
+                        min={3000}
+                        max={200000}
+                        step={500}
+                        required
+                        value={monthlyRateBtn}
+                        onChange={(e) => setMonthlyRateBtn(e.target.value)}
+                        className="w-full rounded-2xl bg-surface px-4 py-3 text-sm text-fg shadow-[0_6px_20px_-8px_rgba(36,41,38,0.08)] focus:outline-none focus:ring-2 focus:ring-primary/30"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-semibold text-fg">
+                      Qualifications & Certifications
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={qualifications}
+                      onChange={(e) => setQualifications(e.target.value)}
+                      placeholder="e.g. ECCD Diploma, Pediatric First Aid"
+                      className="w-full rounded-2xl bg-surface px-4 py-3 text-sm text-fg placeholder:text-fg-muted shadow-[0_6px_20px_-8px_rgba(36,41,38,0.08)] focus:outline-none focus:ring-2 focus:ring-primary/30"
+                    />
+                  </div>
+
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <label className="block text-xs font-semibold text-fg">
+                        Skills (comma-separated)
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={skills}
+                        onChange={(e) => setSkills(e.target.value)}
+                        className="w-full rounded-2xl bg-surface px-4 py-3 text-sm text-fg shadow-[0_6px_20px_-8px_rgba(36,41,38,0.08)] focus:outline-none focus:ring-2 focus:ring-primary/30"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="block text-xs font-semibold text-fg">
+                        Languages Spoken
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={languages}
+                        onChange={(e) => setLanguages(e.target.value)}
+                        className="w-full rounded-2xl bg-surface px-4 py-3 text-sm text-fg shadow-[0_6px_20px_-8px_rgba(36,41,38,0.08)] focus:outline-none focus:ring-2 focus:ring-primary/30"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-semibold text-fg">
+                      Short Bio
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={bio}
+                      onChange={(e) => setBio(e.target.value)}
+                      placeholder="Tell families about your childcare approach and experience..."
+                      className="w-full rounded-2xl bg-surface px-4 py-3 text-sm text-fg placeholder:text-fg-muted shadow-[0_6px_20px_-8px_rgba(36,41,38,0.08)] focus:outline-none focus:ring-2 focus:ring-primary/30"
+                    />
+                  </div>
+
+                  {/* Borderless Tonal CID Upload Box */}
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-semibold text-fg">
+                      Citizenship ID (CID) Document
+                    </label>
+                    <label className="flex cursor-pointer items-center justify-between gap-3 rounded-2xl bg-surface px-4 py-3.5 text-xs shadow-[0_6px_20px_-8px_rgba(36,41,38,0.08)] hover:bg-surface-subtle/80 transition-colors">
+                      <span className="flex items-center gap-2.5 text-fg-muted truncate">
+                        {cidFile ? (
+                          <>
+                            <FileCheck2 className="h-4 w-4 shrink-0 text-primary" />
+                            <span className="font-medium text-fg truncate">
+                              {cidFile.name}
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            <Upload className="h-4 w-4 shrink-0 text-primary" />
+                            <span>Upload CID scan or photo (JPG, PNG, PDF)</span>
+                          </>
+                        )}
+                      </span>
+                      <span className="shrink-0 rounded-full bg-primary/12 px-3 py-1 font-semibold text-primary">
+                        {cidFile ? 'Change' : 'Browse'}
+                      </span>
+                      <input
+                        type="file"
+                        accept="image/*,.pdf"
+                        className="hidden"
+                        onChange={(e) => setCidFile(e.target.files?.[0] || null)}
+                      />
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              <Button
+                type="submit"
+                isLoading={loading}
+                className="w-full py-3.5 text-sm font-semibold rounded-full shadow-sm mt-2"
+              >
+                <span>
+                  {role === 'PARENT'
+                    ? 'Create Parent Account'
+                    : 'Submit Caretaker Application'}
+                </span>
+                <ArrowRight className="h-4 w-4" />
+              </Button>
+            </form>
+          </div>
         </div>
       </div>
     </div>

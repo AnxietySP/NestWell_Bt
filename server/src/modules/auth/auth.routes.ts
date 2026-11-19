@@ -45,6 +45,12 @@ const loginSchema = z.object({
   rememberMe: z.boolean().optional(),
 });
 
+const resetPasswordSchema = z.object({
+  email: z.string().email(),
+  phone: z.string().min(7).max(20),
+  newPassword: z.string().min(8, 'New password must be at least 8 characters.').max(72),
+});
+
 function setRefreshCookie(res: Response, rawToken: string, rememberMe = true) {
   const maxAge = rememberMe ? env.JWT_REFRESH_EXPIRES_DAYS * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
   res.cookie('nestwell_refresh', rawToken, {
@@ -280,6 +286,60 @@ router.post('/login', async (req: Request, res: Response, next: NextFunction) =>
   }
 });
 
+router.post('/reset-password', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { email, phone, newPassword } = resetPasswordSchema.parse(req.body);
+    const normalizedEmail = email.trim().toLowerCase();
+    const cleanPhone = phone.replace(/\s+/g, '');
+
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      `SELECT id, phone, is_active FROM users WHERE email = ?`,
+      [normalizedEmail]
+    );
+
+    const user = rows[0];
+    if (!user) {
+      throw new AppError('No account found with that email address.', 404);
+    }
+    if (!user.is_active) {
+      throw new AppError('This account is suspended. Please contact NestWell.BT support.', 403);
+    }
+
+    const storedCleanPhone = String(user.phone || '').replace(/\s+/g, '');
+    if (storedCleanPhone !== cleanPhone) {
+      throw new AppError('The registered phone number does not match this account.', 400);
+    }
+
+    const passwordHash = await hashPassword(newPassword);
+
+    await withTransaction(async (conn) => {
+      await conn.execute('UPDATE users SET password_hash = ? WHERE id = ?', [
+        passwordHash,
+        user.id,
+      ]);
+      await conn.execute('UPDATE refresh_tokens SET revoked = TRUE WHERE user_id = ?', [
+        user.id,
+      ]);
+      await createNotification(
+        {
+          userId: user.id,
+          type: 'PASSWORD_RESET',
+          title: 'Password Updated',
+          message: 'Your NestWell.BT account password was reset successfully.',
+        },
+        conn
+      );
+    });
+
+    res.json({
+      success: true,
+      message: 'Password updated successfully. You can now sign in with your new password.',
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.post('/refresh', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const rawRefresh = req.cookies?.nestwell_refresh;
@@ -377,6 +437,15 @@ router.patch('/me/avatar', authenticate, uploadAvatar.single('avatar'), async (r
     const avatarUrl = `/images/avatars/${req.file.filename}`;
     await pool.execute('UPDATE users SET avatar_url = ? WHERE id = ?', [avatarUrl, req.user!.sub]);
     res.json({ avatarUrl });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete('/me/avatar', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    await pool.execute('UPDATE users SET avatar_url = NULL WHERE id = ?', [req.user!.sub]);
+    res.json({ success: true, avatarUrl: null });
   } catch (err) {
     next(err);
   }
