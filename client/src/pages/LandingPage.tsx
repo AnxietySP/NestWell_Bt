@@ -49,9 +49,9 @@ function Hero() {
   const [mode, setMode] = useState<'parent' | 'caretaker'>('parent');
 
   return (
-    <section className="mx-auto max-w-7xl px-4 pt-12 sm:px-6 lg:px-8 lg:pt-20">
-      <div className="grid items-center gap-12 lg:grid-cols-12">
-        <div className="space-y-8 lg:col-span-7">
+    <section className="mx-auto max-w-7xl px-4 pt-8 sm:px-6 lg:px-8 lg:pt-12">
+      <div className="grid items-start gap-12 lg:grid-cols-12">
+        <div className="space-y-6 lg:col-span-7">
           <div className="inline-flex rounded-full border border-border bg-surface p-1 text-sm font-medium">
             {[
               { id: 'parent', label: 'Looking for a nanny' },
@@ -70,22 +70,26 @@ function Hero() {
             ))}
           </div>
 
-          <h1 className="font-serif text-4xl font-semibold leading-tight tracking-tight text-fg sm:text-5xl lg:text-6xl">
-            {mode === 'parent' ? 'Trusted nannies for your child.' : 'Steady work. Families who value you.'}
-          </h1>
+          <div className="space-y-4">
+            <h1 className="font-serif text-4xl font-semibold leading-[1.1] tracking-tight text-fg sm:text-5xl lg:text-6xl">
+              {mode === 'parent' ? 'Trusted nannies for your child.' : 'Steady work. Families who value you.'}
+            </h1>
 
-          <p className="max-w-lg text-lg text-fg-muted">
-            {mode === 'parent' ? 'CID-verified. 6-month placements.' : 'Verified profile. Clear 6-month contracts.'}
-          </p>
+            <p className="max-w-lg text-lg text-fg-muted">
+              {mode === 'parent' ? 'CID-verified. 6-month placements.' : 'Verified profile. Clear 6-month contracts.'}
+            </p>
+          </div>
 
-          <Link to={mode === 'parent' ? '/caretakers' : '/register?role=CARETAKER'}>
-            <Button size="lg">
-              {mode === 'parent' ? 'Find a Caretaker' : 'Become a Caretaker'} <ArrowRight className="h-4 w-4" />
-            </Button>
-          </Link>
+          <div className="pt-2">
+            <Link to={mode === 'parent' ? '/caretakers' : '/register?role=CARETAKER'}>
+              <Button size="lg">
+                {mode === 'parent' ? 'Find a Caretaker' : 'Become a Caretaker'} <ArrowRight className="h-4 w-4" />
+              </Button>
+            </Link>
+          </div>
         </div>
 
-        <div className="lg:col-span-5">
+        <div className="lg:col-span-5 lg:mt-2">
           <div className="overflow-hidden rounded-2xl border border-border bg-surface p-2 shadow-elevated">
             <img
               src="public\images\LandingPic.png"
