@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { RowDataPacket } from 'mysql2';
@@ -27,6 +29,29 @@ async function getProfileJoinConfig() {
   const hasVerifiedBy = names.has('verified_by');
   const hasVerifiedAt = names.has('verified_at');
   return { fkCol, docCol, hasVerifiedBy, hasVerifiedAt };
+}
+
+function tryDeleteUploadedFile(storedPath?: string | null) {
+  if (!storedPath) return;
+  const normalized = storedPath.replace(/\\/g, '/').replace(/^https?:\/\/[^/]+\//i, '').replace(/^\/+/, '');
+  if (!normalized || normalized.includes('..')) return;
+
+  const candidates = [
+    path.resolve(process.cwd(), normalized),
+    path.resolve(process.cwd(), 'uploads', path.basename(normalized)),
+    path.resolve(__dirname, '../../../', normalized),
+    path.resolve(__dirname, '../../../uploads', path.basename(normalized)),
+  ];
+
+  for (const filePath of Array.from(new Set(candidates))) {
+    try {
+      if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+        fs.unlinkSync(filePath);
+      }
+    } catch {
+      // Ignore file unlink errors so DB deletion always completes
+    }
+  }
 }
 
 // Get platform KPI stats
@@ -167,6 +192,43 @@ router.patch('/caretakers/:id/verify', authenticate, authorize('ADMIN'), async (
   }
 });
 
+// Delete a caretaker account & associated records/files
+router.delete('/caretakers/:id', authenticate, authorize('ADMIN'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const caretakerId = String(req.params.id);
+    const { fkCol, docCol } = await getProfileJoinConfig();
+
+    const docSelect = docCol ? `, cp.${docCol} AS idDocumentPath` : '';
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      `SELECT u.id, u.avatar_url AS avatarUrl${docSelect}
+       FROM users u
+       LEFT JOIN caretaker_profiles cp ON cp.${fkCol} = u.id
+       WHERE u.id = ? AND u.role = 'CARETAKER'`,
+      [caretakerId]
+    );
+
+    const target = rows[0];
+    if (!target) {
+      throw new AppError('Caretaker account not found.', 404);
+    }
+
+    // Delete dependent records safely in case ON DELETE CASCADE is not set on all FKs
+    await pool.execute(`DELETE FROM notifications WHERE user_id = ?`, [caretakerId]);
+    await pool.execute(`DELETE FROM bookings WHERE caretaker_id = ?`, [caretakerId]);
+    await pool.execute(`DELETE FROM caretaker_profiles WHERE ${fkCol} = ?`, [caretakerId]);
+    await pool.execute(`DELETE FROM users WHERE id = ? AND role = 'CARETAKER'`, [caretakerId]);
+
+    tryDeleteUploadedFile(target.avatarUrl);
+    if (docCol) {
+      tryDeleteUploadedFile(target.idDocumentPath);
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Get all bookings/contracts for admin audit
 router.get('/bookings', authenticate, authorize('ADMIN'), async (_req: Request, res: Response, next: NextFunction) => {
   try {
@@ -190,6 +252,17 @@ router.get('/bookings', authenticate, authorize('ADMIN'), async (_req: Request, 
     );
 
     res.json({ bookings: rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Delete a booking/contract record
+router.delete('/bookings/:id', authenticate, authorize('ADMIN'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const bookingId = String(req.params.id);
+    await pool.execute(`DELETE FROM bookings WHERE id = ?`, [bookingId]);
+    res.json({ success: true });
   } catch (err) {
     next(err);
   }

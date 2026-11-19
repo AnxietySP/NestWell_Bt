@@ -1,8 +1,7 @@
-import type { Config } from 'tailwindcss';
-
+/** @type {import('tailwindcss').Config} */
 export default {
   darkMode: 'class',
-  content: ['./index.html', './src/**/*.{ts,tsx}'],
+  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
     extend: {
       colors: {
@@ -22,13 +21,12 @@ export default {
       },
       fontFamily: {
         sans: ['"Plus Jakarta Sans"', 'system-ui', 'sans-serif'],
-        serif: ['"Fraunces"', 'Georgia', 'serif'],
+        serif: ['Fraunces', 'Georgia', 'serif'],
       },
       boxShadow: {
-        soft: '0 2px 12px -2px rgba(38, 52, 45, 0.06)',
-        elevated: '0 14px 34px -8px rgba(38, 52, 45, 0.14)',
+        soft: '0 8px 30px -12px rgba(24, 36, 30, 0.08)',
       },
     },
   },
   plugins: [],
-} satisfies Config;
+};
