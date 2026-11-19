@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { ShieldCheck, Phone, Mail } from 'lucide-react';
+import { Phone, Mail } from 'lucide-react';
 
 export function Footer() {
   return (
@@ -7,9 +7,12 @@ export function Footer() {
       <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
         <div className="grid gap-8 md:grid-cols-4">
           <div className="space-y-3">
-            {/* Updated logo to match the header */}
-            <Link to="/" className="flex items-center gap-2">
-              <ShieldCheck className="h-6 w-6 text-primary" />
+            <Link to="/" className="flex items-center gap-2.5">
+              <img
+                src="/images/nestwell_logo.png"
+                alt="NestWell.BT Logo"
+                className="h-7 w-7 object-contain"
+              />
               <span className="font-serif text-xl font-bold tracking-tight text-fg">NestWell.BT</span>
             </Link>
             <p className="text-sm text-fg-muted leading-relaxed">
@@ -23,7 +26,7 @@ export function Footer() {
               <li><Link to="/caretakers" className="hover:text-fg">Browse Verified Caretakers</Link></li>
               <li><a href="/#how-it-works" className="hover:text-fg">How 6-Month Contracts Work</a></li>
               <li><Link to="/register?role=CARETAKER" className="hover:text-fg">Apply as a Caretaker</Link></li>
-              <li><a href="/#faq" className="hover:text-fg">Safety & Verification FAQ</a></li>
+              <li><a href="/#contact" className="hover:text-fg">Safety & Verification FAQ</a></li>
             </ul>
           </div>
 
