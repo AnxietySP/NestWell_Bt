@@ -43,6 +43,7 @@ interface AdminCaretakerRow {
   monthlyRateBtn: number;
   verificationStatus: 'PENDING' | 'APPROVED' | 'REJECTED';
   idDocumentPath?: string | null;
+  certificateDocumentPath?: string | null;
   rejectionReason?: string | null;
   avatarUrl?: string | null;
 }
@@ -98,6 +99,8 @@ export function AdminDashboard() {
   // Modals & Action States
   const [cidModalCaretaker, setCidModalCaretaker] = useState<AdminCaretakerRow | null>(null);
   const [rejectModalCaretaker, setRejectModalCaretaker] = useState<AdminCaretakerRow | null>(null);
+  const [deleteModalCaretaker, setDeleteModalCaretaker] = useState<AdminCaretakerRow | null>(null);
+  const [deleteModalBooking, setDeleteModalBooking] = useState<any | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
   const [logoutModalOpen, setLogoutModalOpen] = useState(false);
   const [avatarBusy, setAvatarBusy] = useState(false);
@@ -144,6 +147,11 @@ export function AdminDashboard() {
           c.verificationStatus || c.verification_status || 'PENDING',
         idDocumentPath:
           c.idDocumentPath || c.id_document_path || c.idDocumentUrl || null,
+        certificateDocumentPath:
+          c.certificateDocumentPath ||
+          c.certificate_document_path ||
+          c.certificateDocumentUrl ||
+          null,
         rejectionReason: c.rejectionReason || c.rejection_reason || null,
         avatarUrl: c.avatarUrl || c.avatar_url || null,
       }));
@@ -242,7 +250,7 @@ export function AdminDashboard() {
   };
 
   // =========================================================================
-  // APPROVE / REJECT CARETAKER VERIFICATION
+  // APPROVE / REJECT / DELETE CARETAKER VERIFICATION
   // =========================================================================
   const handleVerifyDecision = async (
     caretakerId: string,
@@ -258,7 +266,7 @@ export function AdminDashboard() {
       });
       setBannerMessage(
         status === 'APPROVED'
-          ? 'Caretaker Citizenship ID approved and profile published.'
+          ? 'Caretaker CID and certificate approved. Profile is now live.'
           : 'Caretaker application rejected.'
       );
       setCidModalCaretaker(null);
@@ -268,6 +276,41 @@ export function AdminDashboard() {
     } catch (err: any) {
       window.alert(
         err?.response?.data?.message || 'Unable to update caretaker verification.'
+      );
+    } finally {
+      setActionBusyId(null);
+    }
+  };
+
+  const handleDeleteCaretaker = async (caretaker: AdminCaretakerRow) => {
+    setActionBusyId(caretaker.id);
+    setBannerMessage(null);
+    try {
+      await api.delete(`/admin/caretakers/${caretaker.id}`);
+      setBannerMessage(`Removed ${caretaker.fullName} and associated records.`);
+      setDeleteModalCaretaker(null);
+      setCidModalCaretaker(null);
+      await loadAdminData();
+    } catch (err: any) {
+      window.alert(
+        err?.response?.data?.message || 'Unable to delete caretaker account.'
+      );
+    } finally {
+      setActionBusyId(null);
+    }
+  };
+
+  const handleDeleteBooking = async (booking: any) => {
+    setActionBusyId(booking.id);
+    setBannerMessage(null);
+    try {
+      await api.delete(`/admin/bookings/${booking.id}`);
+      setBannerMessage('Contract record deleted.');
+      setDeleteModalBooking(null);
+      await loadAdminData();
+    } catch (err: any) {
+      window.alert(
+        err?.response?.data?.message || 'Unable to delete contract record.'
       );
     } finally {
       setActionBusyId(null);
@@ -355,8 +398,15 @@ export function AdminDashboard() {
   ];
 
   const cidDocumentUrl = resolveDocumentUrl(cidModalCaretaker?.idDocumentPath);
-  const isPdfDocument = Boolean(
+  const isCidPdf = Boolean(
     cidDocumentUrl && cidDocumentUrl.toLowerCase().endsWith('.pdf')
+  );
+
+  const certDocumentUrl = resolveDocumentUrl(
+    cidModalCaretaker?.certificateDocumentPath
+  );
+  const isCertPdf = Boolean(
+    certDocumentUrl && certDocumentUrl.toLowerCase().endsWith('.pdf')
   );
 
   return (
@@ -480,14 +530,14 @@ export function AdminDashboard() {
             <div className="rounded-2xl bg-[#242926] p-4 text-white space-y-2.5 shadow-soft">
               <div className="flex items-center justify-between text-xs font-semibold">
                 <span className="flex items-center gap-1.5 text-emerald-300">
-                  <ShieldCheck className="h-4 w-4" /> CID Audit Queue
+                  <ShieldCheck className="h-4 w-4" /> Credential Audit
                 </span>
                 <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-emerald-300">
                   {pendingCount} Pending
                 </span>
               </div>
               <p className="text-[11px] text-stone-300 leading-relaxed">
-                Inspect Citizenship ID scans before approving caretaker profiles for public listing.
+                Inspect Citizenship ID and Institution Certificates before approving caretaker profiles.
               </p>
               <button
                 type="button"
@@ -497,7 +547,7 @@ export function AdminDashboard() {
                 }}
                 className="block w-full rounded-xl bg-primary py-2 text-center text-xs font-semibold text-white transition-opacity hover:opacity-95"
               >
-                Review Pending CIDs
+                Review Pending Docs
               </button>
             </div>
 
@@ -525,7 +575,7 @@ export function AdminDashboard() {
                   Platform Administration
                 </h1>
                 <p className="text-xs text-fg-muted mt-0.5">
-                  Audit caretaker Citizenship IDs, oversee 6-month contracts, and monitor platform growth.
+                  Audit caretaker Citizenship IDs & certificates, oversee 6-month contracts, and monitor platform growth.
                 </p>
               </div>
 
@@ -587,7 +637,7 @@ export function AdminDashboard() {
                   </span>
                 </p>
                 <p className="text-[11px] text-emerald-300 flex items-center gap-1">
-                  <ShieldCheck className="h-3.5 w-3.5" /> CID & qualification approved
+                  <ShieldCheck className="h-3.5 w-3.5" /> CID & certificate approved
                 </p>
               </div>
 
@@ -607,7 +657,7 @@ export function AdminDashboard() {
                   {pendingCount}
                 </p>
                 <p className="text-[11px] text-amber-700 dark:text-amber-300 flex items-center gap-1 font-medium">
-                  <Clock className="h-3.5 w-3.5" /> Needs CID inspection
+                  <Clock className="h-3.5 w-3.5" /> Needs document review
                 </p>
               </div>
 
@@ -684,7 +734,7 @@ export function AdminDashboard() {
                 <div className="lg:col-span-5 rounded-2xl border border-border bg-surface p-6 shadow-soft flex flex-col justify-between space-y-5">
                   <div>
                     <h2 className="font-serif text-lg font-semibold text-fg">
-                      CID Screening Breakdown
+                      Credential Screening Breakdown
                     </h2>
                     <p className="text-xs text-fg-muted mt-0.5">
                       Applicant verification status across {caretakers.length} total caretakers
@@ -700,7 +750,7 @@ export function AdminDashboard() {
                         barColor: 'bg-primary',
                       },
                       {
-                        label: 'Pending CID Review',
+                        label: 'Pending Document Review',
                         count: pendingCount,
                         total: Math.max(1, caretakers.length),
                         barColor: 'bg-amber-500',
@@ -743,7 +793,7 @@ export function AdminDashboard() {
             )}
 
             {/* =============================================================== */}
-            {/* CARETAKER VERIFICATION QUEUE TABLE (Clean, Zero Overlap)        */}
+            {/* CARETAKER VERIFICATION QUEUE TABLE                              */}
             {/* =============================================================== */}
             {(activeSection === 'OVERVIEW' || activeSection === 'VERIFICATIONS') && (
               <div className="rounded-2xl border border-border bg-surface shadow-soft overflow-hidden">
@@ -753,7 +803,7 @@ export function AdminDashboard() {
                       Caretaker Verification Queue
                     </h2>
                     <p className="text-xs text-fg-muted mt-0.5">
-                      Inspect Citizenship ID documents and approve or decline caretaker listings.
+                      Inspect Citizenship ID and Institution Certificate documents before approving listings.
                     </p>
                   </div>
 
@@ -788,13 +838,13 @@ export function AdminDashboard() {
 
                 {/* Responsive Horizontal Scroll Wrapper Prevents Any Overlap */}
                 <div className="w-full overflow-x-auto">
-                  <table className="w-full min-w-[960px] border-collapse text-left">
+                  <table className="w-full min-w-[1040px] border-collapse text-left">
                     <thead>
                       <tr className="border-b border-border bg-surface-subtle/60 text-[11px] font-semibold uppercase tracking-wider text-fg-muted">
                         <th className="py-3.5 pl-6 pr-4">Applicant</th>
                         <th className="px-4 py-3.5 whitespace-nowrap">Dzongkhag</th>
                         <th className="px-4 py-3.5">Qualifications & Rate</th>
-                        <th className="px-4 py-3.5 whitespace-nowrap">CID Document</th>
+                        <th className="px-4 py-3.5 whitespace-nowrap">CID & Certificate</th>
                         <th className="px-4 py-3.5 whitespace-nowrap">Status</th>
                         <th className="py-3.5 pl-4 pr-6 text-right whitespace-nowrap">
                           Actions
@@ -873,7 +923,7 @@ export function AdminDashboard() {
                                 </p>
                               </td>
 
-                              {/* View CID Document Button */}
+                              {/* View CID & Certificate Button */}
                               <td className="px-4 py-4 whitespace-nowrap">
                                 <button
                                   type="button"
@@ -881,7 +931,7 @@ export function AdminDashboard() {
                                   className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-surface-subtle/70 px-3 py-1.5 text-xs font-medium text-fg hover:border-primary/40 hover:text-primary transition-colors"
                                 >
                                   <FileText className="h-3.5 w-3.5 text-primary" />
-                                  View CID
+                                  View Docs
                                 </button>
                               </td>
 
@@ -927,6 +977,17 @@ export function AdminDashboard() {
                                     <XCircle className="h-3.5 w-3.5 text-red-500" />
                                     Reject
                                   </Button>
+
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    disabled={isBusy}
+                                    onClick={() => setDeleteModalCaretaker(c)}
+                                    title={`Delete ${c.fullName}`}
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5 text-red-600" />
+                                    Delete
+                                  </Button>
                                 </div>
                               </td>
                             </tr>
@@ -954,15 +1015,16 @@ export function AdminDashboard() {
                 </div>
 
                 <div className="w-full overflow-x-auto">
-                  <table className="w-full min-w-[820px] border-collapse text-left">
+                  <table className="w-full min-w-[880px] border-collapse text-left">
                     <thead>
                       <tr className="border-b border-border bg-surface-subtle/60 text-[11px] font-semibold uppercase tracking-wider text-fg-muted">
                         <th className="py-3.5 pl-6 pr-4">Family / Parent</th>
                         <th className="px-4 py-3.5">Caretaker</th>
                         <th className="px-4 py-3.5 whitespace-nowrap">Duration</th>
                         <th className="px-4 py-3.5 whitespace-nowrap">Monthly Rate</th>
+                        <th className="px-4 py-3.5 whitespace-nowrap">Status</th>
                         <th className="py-3.5 pl-4 pr-6 text-right whitespace-nowrap">
-                          Status
+                          Actions
                         </th>
                       </tr>
                     </thead>
@@ -970,7 +1032,7 @@ export function AdminDashboard() {
                       {bookings.length === 0 ? (
                         <tr>
                           <td
-                            colSpan={5}
+                            colSpan={6}
                             className="py-10 text-center text-fg-muted"
                           >
                             No contracts recorded yet.
@@ -997,7 +1059,7 @@ export function AdminDashboard() {
                               )}
                               /mo
                             </td>
-                            <td className="py-4 pl-4 pr-6 text-right whitespace-nowrap">
+                            <td className="px-4 py-4 whitespace-nowrap">
                               <Badge
                                 variant={
                                   ['CONFIRMED', 'ACTIVE', 'ACCEPTED'].includes(b.status)
@@ -1009,6 +1071,17 @@ export function AdminDashboard() {
                               >
                                 {b.status}
                               </Badge>
+                            </td>
+                            <td className="py-4 pl-4 pr-6 text-right whitespace-nowrap">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={actionBusyId === b.id}
+                                onClick={() => setDeleteModalBooking(b)}
+                              >
+                                <Trash2 className="h-3.5 w-3.5 text-red-600" />
+                                Delete
+                              </Button>
                             </td>
                           </tr>
                         ))
@@ -1023,12 +1096,12 @@ export function AdminDashboard() {
       </div>
 
       {/* ================================================================= */}
-      {/* VIEW CITIZENSHIP ID (CID) MODAL                                   */}
+      {/* VIEW CITIZENSHIP ID & INSTITUTION CERTIFICATE MODAL               */}
       {/* ================================================================= */}
       <Modal
         isOpen={Boolean(cidModalCaretaker)}
         onClose={() => setCidModalCaretaker(null)}
-        title={`Citizenship ID Review — ${cidModalCaretaker?.fullName || ''}`}
+        title={`Credential Review — ${cidModalCaretaker?.fullName || ''}`}
         subtitle={`${cidModalCaretaker?.dzongkhag || ''} • ${
           cidModalCaretaker?.qualifications || ''
         }`}
@@ -1051,40 +1124,84 @@ export function AdminDashboard() {
               </div>
             </div>
 
-            {cidDocumentUrl ? (
+            <div className="grid gap-4 sm:grid-cols-2">
+              {/* 1. Citizenship ID (CID) */}
               <div className="space-y-2">
-                <div className="overflow-hidden rounded-2xl border border-border bg-surface-subtle">
-                  {isPdfDocument ? (
-                    <iframe
-                      src={cidDocumentUrl}
-                      title="Caretaker CID PDF"
-                      className="h-[360px] w-full"
-                    />
-                  ) : (
-                    <img
-                      src={cidDocumentUrl}
-                      alt={`${cidModalCaretaker.fullName} Citizenship ID`}
-                      className="max-h-[360px] w-full object-contain bg-stone-950/5"
-                    />
-                  )}
-                </div>
+                <p className="text-xs font-semibold text-fg">
+                  1. Citizenship ID (CID)
+                </p>
+                {cidDocumentUrl ? (
+                  <>
+                    <div className="overflow-hidden rounded-2xl border border-border bg-surface-subtle">
+                      {isCidPdf ? (
+                        <iframe
+                          src={cidDocumentUrl}
+                          title="Caretaker CID PDF"
+                          className="h-[260px] w-full"
+                        />
+                      ) : (
+                        <img
+                          src={cidDocumentUrl}
+                          alt={`${cidModalCaretaker.fullName} Citizenship ID`}
+                          className="h-[260px] w-full object-contain bg-stone-950/5"
+                        />
+                      )}
+                    </div>
+                    <a
+                      href={cidDocumentUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline"
+                    >
+                      Open CID in new tab <ExternalLink className="h-3.5 w-3.5" />
+                    </a>
+                  </>
+                ) : (
+                  <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-xs text-fg">
+                    No Citizenship ID file path attached.
+                  </div>
+                )}
+              </div>
 
-                <div className="flex justify-end">
-                  <a
-                    href={cidDocumentUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline"
-                  >
-                    Open full document in new tab <ExternalLink className="h-3.5 w-3.5" />
-                  </a>
-                </div>
+              {/* 2. Institution Certificate */}
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-fg">
+                  2. Institution Certificate
+                </p>
+                {certDocumentUrl ? (
+                  <>
+                    <div className="overflow-hidden rounded-2xl border border-border bg-surface-subtle">
+                      {isCertPdf ? (
+                        <iframe
+                          src={certDocumentUrl}
+                          title="Institution Certificate PDF"
+                          className="h-[260px] w-full"
+                        />
+                      ) : (
+                        <img
+                          src={certDocumentUrl}
+                          alt={`${cidModalCaretaker.fullName} Institution Certificate`}
+                          className="h-[260px] w-full object-contain bg-stone-950/5"
+                        />
+                      )}
+                    </div>
+                    <a
+                      href={certDocumentUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline"
+                    >
+                      Open Certificate in new tab{' '}
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </a>
+                  </>
+                ) : (
+                  <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-xs text-fg">
+                    No institution certificate attached.
+                  </div>
+                )}
               </div>
-            ) : (
-              <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-5 text-center text-xs text-fg">
-                No Citizenship ID file path was attached to this applicant record.
-              </div>
-            )}
+            </div>
 
             <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
               <Badge
@@ -1135,7 +1252,7 @@ export function AdminDashboard() {
         isOpen={Boolean(rejectModalCaretaker)}
         onClose={() => setRejectModalCaretaker(null)}
         title={`Reject ${rejectModalCaretaker?.fullName || 'Application'}`}
-        subtitle="Provide a brief note explaining why the Citizenship ID or credentials could not be approved."
+        subtitle="Provide a brief note explaining why the Citizenship ID or institution certificate could not be approved."
       >
         {rejectModalCaretaker && (
           <form
@@ -1158,7 +1275,7 @@ export function AdminDashboard() {
                 required
                 value={rejectionReason}
                 onChange={(e) => setRejectionReason(e.target.value)}
-                placeholder="e.g., Citizenship ID image is blurry or expired. Please re-upload a clear scan."
+                placeholder="e.g., Institution certificate scan is blurry or missing official stamp. Please re-upload."
                 className="w-full rounded-xl border border-border bg-surface-subtle/60 px-3.5 py-2.5 text-sm text-fg focus:border-primary focus:outline-none"
               />
             </div>
@@ -1179,6 +1296,86 @@ export function AdminDashboard() {
               </Button>
             </div>
           </form>
+        )}
+      </Modal>
+
+      {/* ================================================================= */}
+      {/* DELETE CARETAKER CONFIRMATION MODAL                               */}
+      {/* ================================================================= */}
+      <Modal
+        isOpen={Boolean(deleteModalCaretaker)}
+        onClose={() => setDeleteModalCaretaker(null)}
+        title={`Delete ${deleteModalCaretaker?.fullName || 'Caretaker'}?`}
+        subtitle="This action permanently removes the caretaker account, profile, contracts, and uploaded CID/certificate files."
+      >
+        {deleteModalCaretaker && (
+          <div className="space-y-4">
+            <div className="flex items-start gap-3 rounded-xl border border-red-500/30 bg-red-500/10 p-3.5 text-xs text-fg">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-600" />
+              <p className="leading-relaxed">
+                Are you sure you want to permanently delete{' '}
+                <strong>{deleteModalCaretaker.fullName}</strong> (
+                {deleteModalCaretaker.email})? This cannot be undone.
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-1">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setDeleteModalCaretaker(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                isLoading={actionBusyId === deleteModalCaretaker.id}
+                onClick={() => handleDeleteCaretaker(deleteModalCaretaker)}
+              >
+                Yes, Delete Caretaker
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* ================================================================= */}
+      {/* DELETE CONTRACT CONFIRMATION MODAL                                */}
+      {/* ================================================================= */}
+      <Modal
+        isOpen={Boolean(deleteModalBooking)}
+        onClose={() => setDeleteModalBooking(null)}
+        title="Delete Childcare Contract?"
+        subtitle="This permanently deletes the selected booking record from the database."
+      >
+        {deleteModalBooking && (
+          <div className="space-y-4">
+            <div className="flex items-start gap-3 rounded-xl border border-red-500/30 bg-red-500/10 p-3.5 text-xs text-fg">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-600" />
+              <p className="leading-relaxed">
+                Delete contract between{' '}
+                <strong>{deleteModalBooking.parentName || 'Parent'}</strong> and{' '}
+                <strong>{deleteModalBooking.caretakerName || 'Caretaker'}</strong>?
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-1">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setDeleteModalBooking(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                isLoading={actionBusyId === deleteModalBooking.id}
+                onClick={() => handleDeleteBooking(deleteModalBooking)}
+              >
+                Yes, Delete Contract
+              </Button>
+            </div>
+          </div>
         )}
       </Modal>
 

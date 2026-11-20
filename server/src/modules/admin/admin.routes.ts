@@ -26,9 +26,16 @@ async function getProfileJoinConfig() {
     : names.has('cid_document_path')
     ? 'cid_document_path'
     : null;
+  const certCol = names.has('certificate_document_path')
+    ? 'certificate_document_path'
+    : names.has('certificate_document_url')
+    ? 'certificate_document_url'
+    : names.has('certificate_path')
+    ? 'certificate_path'
+    : null;
   const hasVerifiedBy = names.has('verified_by');
   const hasVerifiedAt = names.has('verified_at');
-  return { fkCol, docCol, hasVerifiedBy, hasVerifiedAt };
+  return { fkCol, docCol, certCol, hasVerifiedBy, hasVerifiedAt };
 }
 
 function tryDeleteUploadedFile(storedPath?: string | null) {
@@ -95,11 +102,12 @@ router.get('/stats', authenticate, authorize('ADMIN'), async (_req: Request, res
   }
 });
 
-// Get all caretakers with their caretaker_profiles & CID document path
+// Get all caretakers with their caretaker_profiles, CID, and Institution Certificate paths
 router.get('/caretakers', authenticate, authorize('ADMIN'), async (_req: Request, res: Response, next: NextFunction) => {
   try {
-    const { fkCol, docCol } = await getProfileJoinConfig();
+    const { fkCol, docCol, certCol } = await getProfileJoinConfig();
     const docSelect = docCol ? `cp.${docCol} AS idDocumentPath,` : `NULL AS idDocumentPath,`;
+    const certSelect = certCol ? `cp.${certCol} AS certificateDocumentPath,` : `NULL AS certificateDocumentPath,`;
 
     const [rows] = await pool.execute<RowDataPacket[]>(
       `SELECT u.id,
@@ -116,6 +124,7 @@ router.get('/caretakers', authenticate, authorize('ADMIN'), async (_req: Request
               COALESCE(cp.monthly_rate_btn, 0) AS monthlyRateBtn,
               COALESCE(cp.verification_status, 'PENDING') AS verificationStatus,
               ${docSelect}
+              ${certSelect}
               cp.rejection_reason AS rejectionReason
        FROM users u
        LEFT JOIN caretaker_profiles cp ON cp.${fkCol} = u.id
@@ -129,7 +138,7 @@ router.get('/caretakers', authenticate, authorize('ADMIN'), async (_req: Request
   }
 });
 
-// Approve or Reject caretaker CID & credentials
+// Approve or Reject caretaker CID & institution certificate
 router.patch('/caretakers/:id/verify', authenticate, authorize('ADMIN'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const caretakerId = String(req.params.id);
@@ -179,10 +188,10 @@ router.patch('/caretakers/:id/verify', authenticate, authorize('ADMIN'), async (
     await createNotification({
       userId: caretakerId,
       type: status === 'APPROVED' ? 'VERIFICATION_APPROVED' : 'VERIFICATION_REJECTED',
-      title: status === 'APPROVED' ? 'Profile & CID Verified' : 'Verification Update Required',
+      title: status === 'APPROVED' ? 'Profile, CID & Certificate Verified' : 'Verification Update Required',
       message:
         status === 'APPROVED'
-          ? 'Your Citizenship ID and credentials have been approved. Your profile is now live for parent bookings.'
+          ? 'Your Citizenship ID and institution certificate have been approved. Your profile is now live for parent bookings.'
           : `Your verification was not approved${rejectionReason ? `: ${rejectionReason}` : '.'}`,
     });
 
@@ -196,11 +205,12 @@ router.patch('/caretakers/:id/verify', authenticate, authorize('ADMIN'), async (
 router.delete('/caretakers/:id', authenticate, authorize('ADMIN'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const caretakerId = String(req.params.id);
-    const { fkCol, docCol } = await getProfileJoinConfig();
+    const { fkCol, docCol, certCol } = await getProfileJoinConfig();
 
     const docSelect = docCol ? `, cp.${docCol} AS idDocumentPath` : '';
+    const certSelect = certCol ? `, cp.${certCol} AS certificateDocumentPath` : '';
     const [rows] = await pool.execute<RowDataPacket[]>(
-      `SELECT u.id, u.avatar_url AS avatarUrl${docSelect}
+      `SELECT u.id, u.avatar_url AS avatarUrl${docSelect}${certSelect}
        FROM users u
        LEFT JOIN caretaker_profiles cp ON cp.${fkCol} = u.id
        WHERE u.id = ? AND u.role = 'CARETAKER'`,
@@ -221,6 +231,9 @@ router.delete('/caretakers/:id', authenticate, authorize('ADMIN'), async (req: R
     tryDeleteUploadedFile(target.avatarUrl);
     if (docCol) {
       tryDeleteUploadedFile(target.idDocumentPath);
+    }
+    if (certCol) {
+      tryDeleteUploadedFile(target.certificateDocumentPath);
     }
 
     res.json({ success: true });

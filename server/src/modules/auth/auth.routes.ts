@@ -138,6 +138,7 @@ router.post(
   '/register/caretaker',
   uploadRegistration.fields([
     { name: 'idDocument', maxCount: 1 },
+    { name: 'certificateDocument', maxCount: 1 },
     { name: 'avatar', maxCount: 1 },
   ]),
   async (req: Request, res: Response, next: NextFunction) => {
@@ -145,10 +146,14 @@ router.post(
       const data = caretakerRegisterSchema.parse(req.body);
       const files = req.files as Record<string, Express.Multer.File[]> | undefined;
       const idDoc = files?.idDocument?.[0];
+      const certDoc = files?.certificateDocument?.[0];
       const avatar = files?.avatar?.[0];
 
       if (!idDoc) {
-        throw new AppError('Citizenship ID / Identification document upload is required.', 400);
+        throw new AppError('Citizenship ID (CID) document upload is required.', 400);
+      }
+      if (!certDoc) {
+        throw new AppError('Institution certificate upload is required for verification.', 400);
       }
 
       const normalizedEmail = data.email.trim().toLowerCase();
@@ -195,8 +200,9 @@ router.post(
         await conn.execute(
           `INSERT INTO caretaker_profiles (
             user_id, bio, years_experience, qualifications, skills_json, languages_json,
-            hourly_rate_btn, daily_rate_btn, monthly_rate_btn, verification_status, id_document_path
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?)`,
+            hourly_rate_btn, daily_rate_btn, monthly_rate_btn, verification_status,
+            id_document_path, certificate_document_path
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?)`,
           [
             userId,
             data.bio?.trim() || null,
@@ -208,6 +214,7 @@ router.post(
             data.dailyRateBtn ?? null,
             data.monthlyRateBtn,
             `uploads/${idDoc.filename}`,
+            `uploads/${certDoc.filename}`,
           ]
         );
 
@@ -216,7 +223,7 @@ router.post(
             userId,
             type: 'REGISTRATION_SUCCESS',
             title: 'Application Submitted for Verification',
-            message: 'Thank you for joining NestWell.BT. Our team is reviewing your Citizenship ID and qualifications.',
+            message: 'Thank you for joining NestWell.BT. Our team is reviewing your Citizenship ID and institution certificate.',
           },
           conn
         );

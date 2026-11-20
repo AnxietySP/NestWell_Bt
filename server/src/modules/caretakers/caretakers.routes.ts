@@ -7,7 +7,7 @@ import { AppError } from '../../middlewares/error.middleware';
 
 const router = Router();
 
-// Public discovery endpoint — returns APPROVED caretakers by default
+// Public discovery endpoint — returns APPROVED caretakers with CID & Certificate paths
 router.get('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { dzongkhag, minExp, maxMonthlyRate, search } = req.query;
@@ -43,6 +43,8 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
         cp.skills_json AS skills, cp.languages_json AS languages,
         cp.hourly_rate_btn AS hourlyRateBtn, cp.daily_rate_btn AS dailyRateBtn,
         cp.monthly_rate_btn AS monthlyRateBtn, cp.verification_status AS verificationStatus,
+        cp.id_document_path AS idDocumentPath,
+        cp.certificate_document_path AS certificateDocumentPath,
         cp.is_available AS isAvailable, cp.avg_rating AS avgRating, cp.total_reviews AS totalReviews
        FROM users u
        JOIN caretaker_profiles cp ON cp.user_id = u.id
@@ -82,6 +84,8 @@ router.get(
           cp.skills_json AS skills, cp.languages_json AS languages,
           cp.hourly_rate_btn AS hourlyRateBtn, cp.daily_rate_btn AS dailyRateBtn,
           cp.monthly_rate_btn AS monthlyRateBtn, cp.verification_status AS verificationStatus,
+          cp.id_document_path AS idDocumentPath,
+          cp.certificate_document_path AS certificateDocumentPath,
           cp.rejection_reason AS rejectionReason, cp.is_available AS isAvailable,
           cp.avg_rating AS avgRating, cp.total_reviews AS totalReviews
          FROM users u
@@ -165,6 +169,8 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
         cp.skills_json AS skills, cp.languages_json AS languages,
         cp.hourly_rate_btn AS hourlyRateBtn, cp.daily_rate_btn AS dailyRateBtn,
         cp.monthly_rate_btn AS monthlyRateBtn, cp.verification_status AS verificationStatus,
+        cp.id_document_path AS idDocumentPath,
+        cp.certificate_document_path AS certificateDocumentPath,
         cp.is_available AS isAvailable, cp.avg_rating AS avgRating, cp.total_reviews AS totalReviews
        FROM users u
        JOIN caretaker_profiles cp ON cp.user_id = u.id

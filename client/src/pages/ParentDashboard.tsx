@@ -21,6 +21,8 @@ import {
   Star,
   Award,
   UserSearch,
+  FileText,
+  ExternalLink,
 } from 'lucide-react';
 import { BookingRecord, ChildProfile, AppNotification } from '../types/domain';
 import { api } from '../lib/api';
@@ -54,6 +56,8 @@ interface CaretakerSummary {
   avgRating: number;
   totalReviews: number;
   isAvailable: boolean;
+  idDocumentPath?: string | null;
+  certificateDocumentPath?: string | null;
 }
 
 const DZONGKHAG_OPTIONS = [
@@ -78,6 +82,17 @@ function getInitials(name?: string) {
     : (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
+function resolveDocumentUrl(rawPath?: string | null): string | null {
+  if (!rawPath) return null;
+  if (/^https?:\/\//i.test(rawPath)) return rawPath;
+  const cleaned = rawPath.replace(/^\/+/, '');
+  const baseUrl = api.defaults.baseURL || '';
+  const apiBase = /^https?:\/\//i.test(baseUrl)
+    ? baseUrl.replace(/\/api\/?$/, '')
+    : window.location.origin;
+  return `${apiBase}/${cleaned}`;
+}
+
 export function ParentDashboard() {
   const { user, refreshUser, logout } = useAuth();
   const navigate = useNavigate();
@@ -98,6 +113,7 @@ export function ParentDashboard() {
   const [childModalOpen, setChildModalOpen] = useState(false);
   const [logoutModalOpen, setLogoutModalOpen] = useState(false);
   const [bookingCaretaker, setBookingCaretaker] = useState<CaretakerSummary | null>(null);
+  const [docsCaretaker, setDocsCaretaker] = useState<CaretakerSummary | null>(null);
   const [avatarBusy, setAvatarBusy] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
@@ -391,6 +407,16 @@ export function ParentDashboard() {
     ? bookingCaretaker.monthlyRateBtn * bookingMonths
     : 0;
 
+  const parentCidUrl = resolveDocumentUrl(docsCaretaker?.idDocumentPath);
+  const isParentCidPdf = Boolean(
+    parentCidUrl && parentCidUrl.toLowerCase().endsWith('.pdf')
+  );
+
+  const parentCertUrl = resolveDocumentUrl(docsCaretaker?.certificateDocumentPath);
+  const isParentCertPdf = Boolean(
+    parentCertUrl && parentCertUrl.toLowerCase().endsWith('.pdf')
+  );
+
   return (
     <div className="min-h-screen bg-bg">
       <div className="flex min-h-screen w-full flex-col lg:flex-row">
@@ -519,7 +545,7 @@ export function ParentDashboard() {
                 </span>
               </div>
               <p className="text-[11px] text-stone-300 leading-relaxed">
-                All caretakers are CID-screened for stable 6+ month family placements.
+                All caretakers are CID & certificate screened for stable 6+ month family placements.
               </p>
               <button
                 type="button"
@@ -719,17 +745,29 @@ export function ParentDashboard() {
                           )}
                         </div>
 
-                        <div className="flex items-center justify-between gap-3 border-t border-border pt-4">
-                          <div>
-                            <p className="text-[11px] text-fg-muted">Monthly Rate</p>
-                            <p className="font-serif text-lg font-semibold text-fg">
-                              {formatBtn(c.monthlyRateBtn)}
-                              <span className="text-xs font-normal text-fg-muted">/mo</span>
-                            </p>
+                        <div className="space-y-3 border-t border-border pt-4">
+                          <div className="flex items-center justify-between gap-2">
+                            <div>
+                              <p className="text-[11px] text-fg-muted">Monthly Rate</p>
+                              <p className="font-serif text-lg font-semibold text-fg">
+                                {formatBtn(c.monthlyRateBtn)}
+                                <span className="text-xs font-normal text-fg-muted">/mo</span>
+                              </p>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => setDocsCaretaker(c)}
+                              className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-surface-subtle/70 px-3 py-1.5 text-xs font-medium text-fg hover:border-primary/40 hover:text-primary transition-colors"
+                            >
+                              <FileText className="h-3.5 w-3.5 text-primary" />
+                              CID & Certificate
+                            </button>
                           </div>
 
                           <Button
                             size="sm"
+                            className="w-full"
                             disabled={!c.isAvailable}
                             onClick={() => openBookingForCaretaker(c)}
                           >
@@ -1030,6 +1068,132 @@ export function ParentDashboard() {
           </div>
         </main>
       </div>
+
+      {/* ================================================================= */}
+      {/* VIEW CARETAKER CID & QUALIFICATION CERTIFICATE MODAL              */}
+      {/* ================================================================= */}
+      <Modal
+        isOpen={Boolean(docsCaretaker)}
+        onClose={() => setDocsCaretaker(null)}
+        title={`Verified Credentials — ${docsCaretaker?.fullName || ''}`}
+        subtitle={`${docsCaretaker?.dzongkhag || ''} • ${
+          docsCaretaker?.qualifications || ''
+        }`}
+      >
+        {docsCaretaker && (
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-surface-subtle p-3.5 text-xs">
+              <div>
+                <p className="text-fg-muted">Qualifications & Experience</p>
+                <p className="font-semibold text-fg mt-0.5">
+                  {docsCaretaker.qualifications} • {docsCaretaker.yearsExperience} yrs
+                </p>
+              </div>
+              <Badge variant="verified">Admin Screened & Verified</Badge>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              {/* 1. Citizenship ID (CID) */}
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-fg">
+                  1. Citizenship ID (CID)
+                </p>
+                {parentCidUrl ? (
+                  <>
+                    <div className="overflow-hidden rounded-2xl border border-border bg-surface-subtle">
+                      {isParentCidPdf ? (
+                        <iframe
+                          src={parentCidUrl}
+                          title="Caretaker Citizenship ID PDF"
+                          className="h-[250px] w-full"
+                        />
+                      ) : (
+                        <img
+                          src={parentCidUrl}
+                          alt={`${docsCaretaker.fullName} Citizenship ID`}
+                          className="h-[250px] w-full object-contain bg-stone-950/5"
+                        />
+                      )}
+                    </div>
+                    <a
+                      href={parentCidUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline"
+                    >
+                      Open CID full size <ExternalLink className="h-3.5 w-3.5" />
+                    </a>
+                  </>
+                ) : (
+                  <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-xs text-fg">
+                    CID document preview not available.
+                  </div>
+                )}
+              </div>
+
+              {/* 2. Qualification / Institution Certificate */}
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-fg">
+                  2. Institution Certificate
+                </p>
+                {parentCertUrl ? (
+                  <>
+                    <div className="overflow-hidden rounded-2xl border border-border bg-surface-subtle">
+                      {isParentCertPdf ? (
+                        <iframe
+                          src={parentCertUrl}
+                          title="Institution Certificate PDF"
+                          className="h-[250px] w-full"
+                        />
+                      ) : (
+                        <img
+                          src={parentCertUrl}
+                          alt={`${docsCaretaker.fullName} Institution Certificate`}
+                          className="h-[250px] w-full object-contain bg-stone-950/5"
+                        />
+                      )}
+                    </div>
+                    <a
+                      href={parentCertUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline"
+                    >
+                      Open Certificate full size{' '}
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </a>
+                  </>
+                ) : (
+                  <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-xs text-fg">
+                    Institution certificate preview not available.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border pt-3">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setDocsCaretaker(null)}
+              >
+                Close
+              </Button>
+              <Button
+                size="sm"
+                disabled={!docsCaretaker.isAvailable}
+                onClick={() => {
+                  const target = docsCaretaker;
+                  setDocsCaretaker(null);
+                  openBookingForCaretaker(target);
+                }}
+              >
+                {docsCaretaker.isAvailable ? 'Request 6-Mo Care' : 'Currently Booked'}
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       {/* ================================================================= */}
       {/* ADD CHILD PROFILE MODAL                                           */}

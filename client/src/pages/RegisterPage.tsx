@@ -67,6 +67,7 @@ export function RegisterPage() {
   const [languages, setLanguages] = useState('Dzongkha, English');
   const [bio, setBio] = useState('');
   const [cidFile, setCidFile] = useState<File | null>(null);
+  const [certificateFile, setCertificateFile] = useState<File | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -99,6 +100,11 @@ export function RegisterPage() {
 
     if (role === 'CARETAKER' && !cidFile) {
       setError('Please upload your Citizenship ID (CID) document for verification.');
+      return;
+    }
+
+    if (role === 'CARETAKER' && !certificateFile) {
+      setError('Please upload your Institution Certificate for verification.');
       return;
     }
 
@@ -137,6 +143,7 @@ export function RegisterPage() {
         );
         formData.append('bio', bio.trim());
         if (cidFile) formData.append('idDocument', cidFile);
+        if (certificateFile) formData.append('certificateDocument', certificateFile);
 
         const { data } = await api.post('/auth/register/caretaker', formData, {
           headers: { 'Content-Type': 'multipart/form-data' },
@@ -194,7 +201,7 @@ export function RegisterPage() {
               <p className="text-sm text-stone-300 leading-relaxed">
                 {role === 'PARENT'
                   ? 'Create your family account to add encrypted child profiles and book CID-verified caretakers for 6+ month placements.'
-                  : 'Submit your Citizenship ID and credentials to connect with families offering steady 6-month childcare contracts.'}
+                  : 'Submit your Citizenship ID and institution certificate to connect with families offering steady 6-month childcare contracts.'}
               </p>
             </div>
 
@@ -204,7 +211,7 @@ export function RegisterPage() {
                 {
                   icon: <ShieldCheck className="h-4 w-4 text-emerald-300" />,
                   title: 'CID & Credential Screening',
-                  desc: 'Every caretaker is verified by our admin team before activation.',
+                  desc: 'Every caretaker’s CID and training certificate are verified by our admin team before activation.',
                 },
                 {
                   icon: <Calendar className="h-4 w-4 text-emerald-300" />,
@@ -538,10 +545,10 @@ export function RegisterPage() {
                     />
                   </div>
 
-                  {/* Borderless Tonal CID Upload Box */}
+                  {/* Borderless Tonal CID Upload Box (Compulsory) */}
                   <div className="space-y-1.5">
                     <label className="block text-xs font-semibold text-fg">
-                      Citizenship ID (CID) Document
+                      Citizenship ID (CID) Document <span className="text-red-500">*</span>
                     </label>
                     <label className="flex cursor-pointer items-center justify-between gap-3 rounded-2xl bg-surface px-4 py-3.5 text-xs shadow-[0_6px_20px_-8px_rgba(36,41,38,0.08)] hover:bg-surface-subtle/80 transition-colors">
                       <span className="flex items-center gap-2.5 text-fg-muted truncate">
@@ -567,6 +574,44 @@ export function RegisterPage() {
                         accept="image/*,.pdf"
                         className="hidden"
                         onChange={(e) => setCidFile(e.target.files?.[0] || null)}
+                      />
+                    </label>
+                  </div>
+
+                  {/* Borderless Tonal Institution Certificate Upload Box (Compulsory) */}
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-semibold text-fg">
+                      Institution Training / Qualification Certificate{' '}
+                      <span className="text-red-500">*</span>
+                    </label>
+                    <label className="flex cursor-pointer items-center justify-between gap-3 rounded-2xl bg-surface px-4 py-3.5 text-xs shadow-[0_6px_20px_-8px_rgba(36,41,38,0.08)] hover:bg-surface-subtle/80 transition-colors">
+                      <span className="flex items-center gap-2.5 text-fg-muted truncate">
+                        {certificateFile ? (
+                          <>
+                            <FileCheck2 className="h-4 w-4 shrink-0 text-primary" />
+                            <span className="font-medium text-fg truncate">
+                              {certificateFile.name}
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            <Upload className="h-4 w-4 shrink-0 text-primary" />
+                            <span>
+                              Upload ECCD / Institution certificate (JPG, PNG, PDF)
+                            </span>
+                          </>
+                        )}
+                      </span>
+                      <span className="shrink-0 rounded-full bg-primary/12 px-3 py-1 font-semibold text-primary">
+                        {certificateFile ? 'Change' : 'Browse'}
+                      </span>
+                      <input
+                        type="file"
+                        accept="image/*,.pdf"
+                        className="hidden"
+                        onChange={(e) =>
+                          setCertificateFile(e.target.files?.[0] || null)
+                        }
                       />
                     </label>
                   </div>
